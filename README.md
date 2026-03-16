@@ -183,7 +183,7 @@ The command runs as a subtask and follows the same 7-phase methodology as Claude
 </details>
 
 <details>
-<summary><h4 id="-goose">⚡ Goose (Desktop / CLI)</h4></summary>
+<summary><h4 id="-goose">⚡ Goose (Desktop / CLI) <sup><code>Experimental</code></sup> <sup><code>Community</code></sup></h4></summary>
 
 **Step 1: Install Goose**
 
