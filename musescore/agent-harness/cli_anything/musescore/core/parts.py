@@ -1,10 +1,13 @@
 """Part extraction and management."""
 
 import base64
+import logging
 import os
 from pathlib import Path
 
 from cli_anything.musescore.utils import musescore_backend as backend
+
+logger = logging.getLogger(__name__)
 
 
 def list_parts(path: str) -> list[dict]:
@@ -31,8 +34,8 @@ def list_parts(path: str) -> list[dict]:
             }
             for i, p in enumerate(parts)
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("mscore metadata failed for parts, falling back to score-parts: %s", e)
 
     # Fallback: score-parts (parts = list of names, partsMeta = list of dicts)
     try:

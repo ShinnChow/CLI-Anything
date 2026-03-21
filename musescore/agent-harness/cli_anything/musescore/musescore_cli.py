@@ -146,13 +146,14 @@ def project_info(path):
 
 
 @project.command("save")
-@click.option("-o", "--output", "path", default=None, help="Save path")
+@click.option("-i", "--input", "input_path", required=True, help="Input score file")
+@click.option("-o", "--output", "output_path", required=True, help="Output score file")
 @handle_error
-def project_save(path):
-    """Save the current project."""
-    sess = get_session()
-    saved = proj_mod.save_project(sess.get_project(), path)
-    output({"saved": saved}, f"Saved to: {saved}")
+def project_save(input_path, output_path):
+    """Save/convert a score to .mscz format via mscore export."""
+    from cli_anything.musescore.core import export as export_mod_local
+    result = export_mod_local.export_score(input_path, output_path, fmt="mscz")
+    output(result, f"Saved to: {output_path}")
 
 
 # ── Transpose Commands ────────────────────────────────────────────────
@@ -292,7 +293,7 @@ def export_group():
 
 def _make_export_cmd(fmt_name, description):
     """Factory for format-specific export commands."""
-    @export_group.command(fmt_name)
+    @export_group.command(fmt_name, help=description)
     @click.option("-i", "--input", "input_path", required=True, help="Input score")
     @click.option("-o", "--output", "output_path", required=True, help="Output file")
     @click.option("--dpi", type=int, default=None, help="DPI for PNG export")
@@ -310,7 +311,6 @@ def _make_export_cmd(fmt_name, description):
         )
         output(result, f"Exported {fmt_name}: {output_path}")
 
-    export_cmd.__doc__ = description
     return export_cmd
 
 
@@ -526,6 +526,9 @@ def repl():
 
             import shlex
             args = shlex.split(line)
+            # Preserve --json flag across REPL commands
+            if _json_output and "--json" not in args:
+                args = ["--json"] + args
             try:
                 cli.main(args, standalone_mode=False)
             except SystemExit:

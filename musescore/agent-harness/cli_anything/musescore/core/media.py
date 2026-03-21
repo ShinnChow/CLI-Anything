@@ -1,10 +1,13 @@
 """Media operations — probe, diff, stats."""
 
+import logging
 import os
 from pathlib import Path
 
 from cli_anything.musescore.utils import musescore_backend as backend
 from cli_anything.musescore.utils import mscx_xml as xml_utils
+
+logger = logging.getLogger(__name__)
 
 
 def probe_score(path: str) -> dict:
@@ -25,7 +28,8 @@ def probe_score(path: str) -> dict:
     try:
         meta = backend.get_score_meta(path)
         result["metadata"] = meta
-    except Exception:
+    except Exception as e:
+        logger.debug("mscore metadata failed for probe, falling back to XML: %s", e)
         # XML fallback
         try:
             tree = xml_utils.read_score_tree(path)

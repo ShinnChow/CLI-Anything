@@ -1,7 +1,10 @@
 """Project management — create, open, save, info."""
 
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from cli_anything.musescore.utils import musescore_backend as backend
 from cli_anything.musescore.utils import mscx_xml as xml_utils
@@ -28,7 +31,8 @@ def open_project(path: str) -> dict:
         project["metadata"] = meta
         if meta.get("title"):
             project["name"] = meta["title"]
-    except Exception:
+    except Exception as e:
+        logger.debug("mscore metadata failed, falling back to XML: %s", e)
         # Fall back to XML parsing for metadata
         try:
             tree = xml_utils.read_score_tree(path)
@@ -42,19 +46,19 @@ def open_project(path: str) -> dict:
                 "measures": xml_utils.count_measures(tree),
                 "notes": xml_utils.count_notes(tree),
             }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("XML parsing also failed: %s", e)
 
     return project
 
 
-def save_project(project: dict, path: str | None = None) -> str:
-    """Save a project. Currently just returns the path (scores are
-    saved via mscore export, not by rewriting the file directly)."""
-    save_path = path or project.get("path")
-    if not save_path:
-        raise RuntimeError("No save path specified.")
-    return str(save_path)
+def save_project(input_path: str, output_path: str) -> dict:
+    """Save/convert a score to .mscz format via mscore export.
+
+    This delegates to mscore -o which handles all format conversion.
+    """
+    from cli_anything.musescore.core import export
+    return export.export_score(input_path, output_path, fmt="mscz")
 
 
 def project_info(path: str) -> dict:
@@ -73,8 +77,8 @@ def project_info(path: str) -> dict:
         meta = backend.get_score_meta(path)
         info["metadata"] = meta
         return info
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("mscore metadata failed for info, falling back to XML: %s", e)
 
     # Fall back to XML parsing
     try:

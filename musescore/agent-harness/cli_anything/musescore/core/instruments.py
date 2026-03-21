@@ -4,10 +4,13 @@ For listing, uses mscore --score-meta. For add/remove/reorder,
 manipulates the MSCX XML directly.
 """
 
+import logging
 import os
 from pathlib import Path
 
 from cli_anything.musescore.utils import musescore_backend as backend
+
+logger = logging.getLogger(__name__)
 from cli_anything.musescore.utils import mscx_xml as xml_utils
 
 
@@ -32,8 +35,8 @@ def list_instruments(path: str) -> list[dict]:
             }
             for i, p in enumerate(parts)
         ]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("mscore metadata failed for instruments, falling back to XML: %s", e)
 
     # Fallback: XML parsing
     try:
@@ -76,11 +79,12 @@ def add_instrument(path: str, output_path: str, instrument_id: str,
     if score is None:
         raise RuntimeError("No <Score> element found in MSCX")
 
-    # Create a new Part element
+    # Count existing parts BEFORE adding the new one
     import xml.etree.ElementTree as ET
+    staff_id = str(len(score.findall("Part")) + 1)
+
     part = ET.SubElement(score, "Part")
     staff = ET.SubElement(part, "Staff")
-    staff_id = str(len(root.findall(".//Part")) + 1)
     staff.set("id", staff_id)
 
     instrument = ET.SubElement(part, "Instrument")
