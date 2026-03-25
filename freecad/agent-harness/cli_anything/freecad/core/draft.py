@@ -394,6 +394,7 @@ def draft_shapestring(
     text: str,
     font_file: str,
     size: float = 10.0,
+    font_path_relative: bool = False,
     name: Optional[str] = None,
     position: Optional[List[float]] = None,
     rotation: Optional[List[float]] = None,
@@ -410,6 +411,8 @@ def draft_shapestring(
         Path to the TrueType font file.
     size : float
         Font height (default ``10``).
+    font_path_relative : bool
+        Whether *font_file* is a relative path (default ``False``).
 
     Returns
     -------
@@ -426,6 +429,7 @@ def draft_shapestring(
         "text": text.strip(),
         "font_file": font_file.strip(),
         "size": float(size),
+        "font_path_relative": bool(font_path_relative),
     }, position, rotation)
 
 
@@ -1116,6 +1120,7 @@ def draft_fillet_2d(
     project: Dict[str, Any],
     index: int,
     radius: float = 1.0,
+    edges: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """Apply a 2D fillet (rounding) to the vertices of a draft object.
 
@@ -1127,6 +1132,8 @@ def draft_fillet_2d(
         Index of the draft object.
     radius : float
         Fillet radius (default ``1``).
+    edges : list[int] or None
+        When provided, fillet only these edge indices instead of all vertices.
 
     Returns
     -------
@@ -1137,6 +1144,8 @@ def draft_fillet_2d(
         raise ValueError("radius must be a positive number")
     obj = _get_draft(project, index)
     obj["properties"]["_fillet_radius"] = float(radius)
+    if edges is not None:
+        obj["properties"]["_fillet_edges"] = list(edges)
     return obj
 
 

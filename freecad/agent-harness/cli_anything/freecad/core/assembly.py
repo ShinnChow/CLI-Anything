@@ -416,3 +416,175 @@ def collapse_assembly(
         comp["transform"] = [0.0, 0.0, 0.0]
 
     return {"collapsed": True, "components": len(assembly["components"])}
+
+
+def insert_new_part(
+    project: Dict[str, Any],
+    asm_index: int,
+    part_type: str = "box",
+    name: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
+    transform: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Create a new part inline within an assembly.
+
+    Instead of referencing an existing part from ``project["parts"]``,
+    this function embeds an inline part definition directly in the
+    assembly's components list.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    asm_index : int
+        Index of the target assembly.
+    part_type : str
+        The type of part to create (e.g. ``"box"``, ``"cylinder"``).
+    name : str or None
+        Human-readable label. Auto-generated when *None*.
+    params : dict or None
+        Part-specific parameters (e.g. dimensions). Defaults to ``{}``.
+    transform : list[float] or None
+        Optional ``[x, y, z]`` placement offset. Defaults to ``[0, 0, 0]``.
+
+    Returns
+    -------
+    dict
+        The newly created component entry.
+
+    Raises
+    ------
+    IndexError
+        If *asm_index* is out of range.
+    """
+    assembly = _get_assembly(project, asm_index)
+
+    if transform is not None:
+        transform = _validate_vec3(transform, "transform")
+    else:
+        transform = [0.0, 0.0, 0.0]
+
+    if params is None:
+        params = {}
+
+    if name is None:
+        name = _unique_name(project, f"InlinePart_{part_type}")
+
+    component: Dict[str, Any] = {
+        "id": _next_id(project),
+        "name": name,
+        "inline_part": {
+            "type": part_type,
+            "params": dict(params),
+        },
+        "transform": transform,
+    }
+
+    assembly["components"].append(component)
+    assembly["solved"] = False
+    return component
+
+
+def create_simulation(
+    project: Dict[str, Any],
+    asm_index: int,
+    name: Optional[str] = None,
+    duration: float = 5.0,
+    fps: int = 24,
+) -> Dict[str, Any]:
+    """Create a simulation entry on an assembly for joint motion/animation.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    asm_index : int
+        Index of the target assembly.
+    name : str or None
+        Human-readable label. Auto-generated when *None*.
+    duration : float
+        Total simulation duration in seconds.
+    fps : int
+        Frames per second for the simulation.
+
+    Returns
+    -------
+    dict
+        The newly created simulation dictionary.
+
+    Raises
+    ------
+    IndexError
+        If *asm_index* is out of range.
+    """
+    assembly = _get_assembly(project, asm_index)
+
+    if name is None:
+        name = f"Simulation_{len(assembly.get('simulations', [])) + 1}"
+
+    simulation: Dict[str, Any] = {
+        "name": name,
+        "duration": float(duration),
+        "fps": int(fps),
+        "steps": [],
+        "status": "configured",
+    }
+
+    assembly.setdefault("simulations", []).append(simulation)
+    return simulation
+
+
+def add_simulation_step(
+    project: Dict[str, Any],
+    asm_index: int,
+    sim_index: int,
+    joint_index: int,
+    start_value: float = 0.0,
+    end_value: float = 1.0,
+) -> Dict[str, Any]:
+    """Append a motion step to an existing simulation.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    asm_index : int
+        Index of the target assembly.
+    sim_index : int
+        Index of the simulation within the assembly's ``simulations`` list.
+    joint_index : int
+        Index of the joint/constraint this step drives.
+    start_value : float
+        Starting value for the joint parameter.
+    end_value : float
+        Ending value for the joint parameter.
+
+    Returns
+    -------
+    dict
+        The newly created step dictionary.
+
+    Raises
+    ------
+    IndexError
+        If *asm_index* or *sim_index* is out of range.
+    """
+    assembly = _get_assembly(project, asm_index)
+
+    simulations = assembly.get("simulations", [])
+    if not isinstance(sim_index, int) or sim_index < 0 or sim_index >= len(simulations):
+        raise IndexError(
+            f"Simulation index {sim_index} out of range "
+            f"(0..{len(simulations) - 1})"
+        )
+
+    simulation = simulations[sim_index]
+
+    step: Dict[str, Any] = {
+        "joint_index": int(joint_index),
+        "start_value": float(start_value),
+        "end_value": float(end_value),
+    }
+
+    simulation["steps"].append(step)
+    return step

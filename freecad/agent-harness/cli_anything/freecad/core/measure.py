@@ -211,7 +211,8 @@ def _compute_inertia(part: Dict[str, Any]) -> Optional[Dict[str, float]]:
 # ---------------------------------------------------------------------------
 
 def measure_distance(
-    project: Dict[str, Any], index1: int, index2: int
+    project: Dict[str, Any], index1: int, index2: int,
+    additive: bool = False,
 ) -> Dict[str, Any]:
     """Measure the Euclidean distance between two parts (bounding-box centres).
 
@@ -240,16 +241,20 @@ def measure_distance(
     dz = c2[2] - c1[2]
     dist = math.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
 
-    return _store_measurement(project, "distance", {
+    result: Dict[str, Any] = {
         "part1_index": index1,
         "part2_index": index2,
         "distance": round(dist, 6),
         "delta": [round(dx, 6), round(dy, 6), round(dz, 6)],
-    })
+    }
+    if additive:
+        result["additive"] = True
+    return _store_measurement(project, "distance", result)
 
 
 def measure_length(
-    project: Dict[str, Any], index: int, edge_ref: Optional[str] = None
+    project: Dict[str, Any], index: int, edge_ref: Optional[str] = None,
+    additive: bool = False,
 ) -> Dict[str, Any]:
     """Estimate the length of a part edge.
 
@@ -278,12 +283,15 @@ def measure_length(
 
     if edge_ref is not None:
         # Deferred — requires macro execution
-        return _store_measurement(project, "length", {
+        result_deferred: Dict[str, Any] = {
             "part_index": index,
             "edge_ref": edge_ref,
             "length": None,
             "deferred": True,
-        })
+        }
+        if additive:
+            result_deferred["additive"] = True
+        return _store_measurement(project, "length", result_deferred)
 
     if t == "box":
         length = max(p["length"], p["width"], p["height"])
@@ -302,16 +310,20 @@ def measure_length(
             p["zmax"] - p["zmin"],
         )
 
-    return _store_measurement(project, "length", {
+    result_len: Dict[str, Any] = {
         "part_index": index,
         "edge_ref": edge_ref,
         "length": round(length, 6) if length is not None else None,
         "deferred": length is None,
-    })
+    }
+    if additive:
+        result_len["additive"] = True
+    return _store_measurement(project, "length", result_len)
 
 
 def measure_angle(
-    project: Dict[str, Any], index1: int, index2: int
+    project: Dict[str, Any], index1: int, index2: int,
+    additive: bool = False,
 ) -> Dict[str, Any]:
     """Measure the angle between two parts based on their centre vectors from the origin.
 
@@ -340,14 +352,17 @@ def measure_angle(
         cos_val = max(-1.0, min(1.0, dot / (mag1 * mag2)))
         angle_deg = math.degrees(math.acos(cos_val))
 
-    return _store_measurement(project, "angle", {
+    result_angle: Dict[str, Any] = {
         "part1_index": index1,
         "part2_index": index2,
         "angle_deg": round(angle_deg, 6),
-    })
+    }
+    if additive:
+        result_angle["additive"] = True
+    return _store_measurement(project, "angle", result_angle)
 
 
-def measure_area(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def measure_area(project: Dict[str, Any], index: int, additive: bool = False) -> Dict[str, Any]:
     """Estimate the surface area of a part from its primitive parameters.
 
     Returns
@@ -358,14 +373,17 @@ def measure_area(project: Dict[str, Any], index: int) -> Dict[str, Any]:
     part = get_part(project, index)
     area = _compute_area(part)
 
-    return _store_measurement(project, "area", {
+    result_area: Dict[str, Any] = {
         "part_index": index,
         "area": round(area, 6) if area is not None else None,
         "deferred": area is None,
-    })
+    }
+    if additive:
+        result_area["additive"] = True
+    return _store_measurement(project, "area", result_area)
 
 
-def measure_volume(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def measure_volume(project: Dict[str, Any], index: int, additive: bool = False) -> Dict[str, Any]:
     """Estimate the volume of a part from its primitive parameters.
 
     Formulas used:
@@ -383,14 +401,17 @@ def measure_volume(project: Dict[str, Any], index: int) -> Dict[str, Any]:
     part = get_part(project, index)
     volume = _compute_volume(part)
 
-    return _store_measurement(project, "volume", {
+    result_vol: Dict[str, Any] = {
         "part_index": index,
         "volume": round(volume, 6) if volume is not None else None,
         "deferred": volume is None,
-    })
+    }
+    if additive:
+        result_vol["additive"] = True
+    return _store_measurement(project, "volume", result_vol)
 
 
-def measure_radius(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def measure_radius(project: Dict[str, Any], index: int, additive: bool = False) -> Dict[str, Any]:
     """Return the radius of a cylindrical, spherical, or toroidal part.
 
     For cones, the larger of ``radius1`` / ``radius2`` is returned.
@@ -423,13 +444,16 @@ def measure_radius(project: Dict[str, Any], index: int) -> Dict[str, Any]:
             f"Supported: cylinder, sphere, cone, torus"
         )
 
-    return _store_measurement(project, "radius", {
+    result_rad: Dict[str, Any] = {
         "part_index": index,
         "radius": round(radius, 6),
-    })
+    }
+    if additive:
+        result_rad["additive"] = True
+    return _store_measurement(project, "radius", result_rad)
 
 
-def measure_diameter(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def measure_diameter(project: Dict[str, Any], index: int, additive: bool = False) -> Dict[str, Any]:
     """Return the diameter of a cylindrical, spherical, or toroidal part.
 
     Returns
@@ -460,13 +484,16 @@ def measure_diameter(project: Dict[str, Any], index: int) -> Dict[str, Any]:
             f"Supported: cylinder, sphere, cone, torus"
         )
 
-    return _store_measurement(project, "diameter", {
+    result_dia: Dict[str, Any] = {
         "part_index": index,
         "diameter": round(diameter, 6),
-    })
+    }
+    if additive:
+        result_dia["additive"] = True
+    return _store_measurement(project, "diameter", result_dia)
 
 
-def measure_position(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def measure_position(project: Dict[str, Any], index: int, additive: bool = False) -> Dict[str, Any]:
     """Return the placement position of a part.
 
     Returns
@@ -477,14 +504,18 @@ def measure_position(project: Dict[str, Any], index: int) -> Dict[str, Any]:
     part = get_part(project, index)
     pos = _get_position(part)
 
-    return _store_measurement(project, "position", {
+    result_pos: Dict[str, Any] = {
         "part_index": index,
         "position": pos,
-    })
+    }
+    if additive:
+        result_pos["additive"] = True
+    return _store_measurement(project, "position", result_pos)
 
 
 def measure_center_of_mass(
-    project: Dict[str, Any], index: int
+    project: Dict[str, Any], index: int,
+    additive: bool = False,
 ) -> Dict[str, Any]:
     """Estimate the centre of mass (geometric centre for simple shapes).
 
@@ -499,14 +530,18 @@ def measure_center_of_mass(
     part = get_part(project, index)
     com = _bbox_center(part)
 
-    return _store_measurement(project, "center_of_mass", {
+    result_com: Dict[str, Any] = {
         "part_index": index,
         "center_of_mass": [round(v, 6) for v in com],
-    })
+    }
+    if additive:
+        result_com["additive"] = True
+    return _store_measurement(project, "center_of_mass", result_com)
 
 
 def measure_bounding_box(
-    project: Dict[str, Any], index: int
+    project: Dict[str, Any], index: int,
+    additive: bool = False,
 ) -> Dict[str, Any]:
     """Compute the axis-aligned bounding box of a part.
 
@@ -560,26 +595,32 @@ def measure_bounding_box(
         ]
     else:
         # Unknown / boolean — deferred
-        return _store_measurement(project, "bounding_box", {
+        result_bb_def: Dict[str, Any] = {
             "part_index": index,
             "min": None,
             "max": None,
             "size": None,
             "deferred": True,
-        })
+        }
+        if additive:
+            result_bb_def["additive"] = True
+        return _store_measurement(project, "bounding_box", result_bb_def)
 
     size = [bb_max[i] - bb_min[i] for i in range(3)]
 
-    return _store_measurement(project, "bounding_box", {
+    result_bb: Dict[str, Any] = {
         "part_index": index,
         "min": [round(v, 6) for v in bb_min],
         "max": [round(v, 6) for v in bb_max],
         "size": [round(v, 6) for v in size],
         "deferred": False,
-    })
+    }
+    if additive:
+        result_bb["additive"] = True
+    return _store_measurement(project, "bounding_box", result_bb)
 
 
-def measure_inertia(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def measure_inertia(project: Dict[str, Any], index: int, additive: bool = False) -> Dict[str, Any]:
     """Estimate the principal moments of inertia (unit density).
 
     Returns
@@ -593,26 +634,57 @@ def measure_inertia(project: Dict[str, Any], index: int) -> Dict[str, Any]:
     if inertia is not None:
         inertia = {k: round(v, 6) for k, v in inertia.items()}
 
-    return _store_measurement(project, "inertia", {
+    result_inertia: Dict[str, Any] = {
         "part_index": index,
         "inertia": inertia,
         "deferred": inertia is None,
-    })
+    }
+    if additive:
+        result_inertia["additive"] = True
+    return _store_measurement(project, "inertia", result_inertia)
 
 
-def check_geometry(project: Dict[str, Any], index: int) -> Dict[str, Any]:
+def check_geometry(
+    project: Dict[str, Any],
+    index: int,
+    include_valid: bool = False,
+    skip_objects: Optional[List[int]] = None,
+) -> Dict[str, Any]:
     """Perform basic geometry validation on a part.
 
     Checks that all numeric parameters are positive and that the part
     type is a known primitive.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    index : int
+        Index of the part in ``project["parts"]``.
+    include_valid : bool
+        When ``True``, also reports valid shape entries in ``valid_entries``
+        (default ``False``).
+    skip_objects : list[int] or None
+        When provided, excludes these part indices from the check.  If the
+        requested *index* is in the skip list the result is returned
+        immediately with ``"skipped": True``.
 
     Returns
     -------
     dict
         Record with ``valid`` boolean and list of ``issues``.
     """
+    if skip_objects is not None and index in skip_objects:
+        return _store_measurement(project, "geometry_check", {
+            "part_index": index,
+            "valid": True,
+            "issues": [],
+            "skipped": True,
+        })
+
     part = get_part(project, index)
     issues: List[str] = []
+    valid_entries: List[str] = []
 
     t = part["type"]
     if t not in PRIMITIVES:
@@ -626,6 +698,8 @@ def check_geometry(project: Dict[str, Any], index: int) -> Dict[str, Any]:
                 # Angle parameters may be negative (e.g. angle1 on sphere/torus)
                 if "angle" not in key and val <= 0:
                     issues.append(f"Parameter '{key}' must be positive, got {val}")
+                elif include_valid:
+                    valid_entries.append(f"Parameter '{key}' = {val}")
             else:
                 issues.append(f"Missing expected parameter '{key}'")
 
@@ -636,11 +710,21 @@ def check_geometry(project: Dict[str, Any], index: int) -> Dict[str, Any]:
     else:
         if "position" not in placement:
             issues.append("Missing 'position' in placement")
+        elif include_valid:
+            valid_entries.append("Placement 'position' present")
         if "rotation" not in placement:
             issues.append("Missing 'rotation' in placement")
+        elif include_valid:
+            valid_entries.append("Placement 'rotation' present")
 
-    return _store_measurement(project, "geometry_check", {
+    result: Dict[str, Any] = {
         "part_index": index,
         "valid": len(issues) == 0,
         "issues": issues,
-    })
+    }
+    if include_valid:
+        result["valid_entries"] = valid_entries
+    if skip_objects is not None:
+        result["skipped"] = False
+
+    return _store_measurement(project, "geometry_check", result)

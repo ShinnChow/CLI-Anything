@@ -407,8 +407,25 @@ def add_annotation(
     page_index: int,
     text: str,
     position: Optional[List[float]] = None,
+    area_mode: bool = False,
+    shape_validation: bool = True,
 ) -> Dict[str, Any]:
     """Add a text annotation to a page.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    page_index : int
+        Index of the target page.
+    text : str
+        Annotation text content.
+    position : list[float] or None
+        Position on the page ``[x, y]``. Defaults to ``[0, 0]``.
+    area_mode : bool
+        When ``True``, computes area accounting for face holes (default ``False``).
+    shape_validation : bool
+        Enables shape validation (default ``True``).
 
     Returns the annotation entry.
     """
@@ -423,6 +440,8 @@ def add_annotation(
         "type": "annotation",
         "text": str(text),
         "position": position,
+        "area_mode": bool(area_mode),
+        "shape_validation": bool(shape_validation),
     }
 
     page["annotations"].append(annotation)

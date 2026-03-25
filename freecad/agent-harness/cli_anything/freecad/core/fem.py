@@ -18,6 +18,9 @@ from .document import ensure_collection
 VALID_ELEMENT_TYPES: Set[str] = {"Tet4", "Tet10", "Hex8", "Hex20", "Tri3", "Tri6"}
 VALID_SOLVERS: Set[str] = {"calculix", "elmer", "z88"}
 VALID_EXPORT_FORMATS: Set[str] = {"vtk", "csv", "json"}
+VALID_BEAM_SECTIONS: Set[str] = {"rectangular", "circular", "box_beam", "elliptical", "pipe"}
+VALID_OUTPUT_FORMATS: Set[str] = {"vtu", "vtk", "result"}
+VALID_MESHERS: Set[str] = {"gmsh", "netgen"}
 
 _COLLECTION_KEY = "fem_analyses"
 
@@ -384,6 +387,10 @@ def generate_fem_mesh(
     max_size: Optional[float] = None,
     min_size: Optional[float] = None,
     element_type: str = "Tet10",
+    mesher: str = "gmsh",
+    gmsh_verbosity: int = 1,
+    second_order_linear: bool = False,
+    local_refinement: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """Configure mesh generation parameters for an analysis.
 
@@ -402,6 +409,14 @@ def generate_fem_mesh(
         Minimum element size. When *None*, FreeCAD uses automatic sizing.
     element_type : str
         Element type (e.g. ``"Tet4"``, ``"Tet10"``, ``"Hex8"``).
+    mesher : str
+        Meshing backend (``"gmsh"`` or ``"netgen"``).
+    gmsh_verbosity : int
+        Gmsh verbosity level (only relevant when *mesher* is ``"gmsh"``).
+    second_order_linear : bool
+        Enable Netgen Second Order Linear elements.
+    local_refinement : dict or None
+        Mapping of geometry references to local mesh sizes.
 
     Returns
     -------
@@ -411,12 +426,18 @@ def generate_fem_mesh(
     Raises
     ------
     ValueError
-        If *element_type* is unknown.
+        If *element_type* or *mesher* is unknown.
     """
     if element_type not in VALID_ELEMENT_TYPES:
         valid = ", ".join(sorted(VALID_ELEMENT_TYPES))
         raise ValueError(
             f"Unknown element_type '{element_type}'. Valid: {valid}"
+        )
+
+    if mesher not in VALID_MESHERS:
+        valid = ", ".join(sorted(VALID_MESHERS))
+        raise ValueError(
+            f"Unknown mesher '{mesher}'. Valid: {valid}"
         )
 
     analysis = _get_analysis(project, ai)
@@ -425,16 +446,181 @@ def generate_fem_mesh(
         "max_size": float(max_size) if max_size is not None else None,
         "min_size": float(min_size) if min_size is not None else None,
         "element_type": element_type,
+        "mesher": mesher,
+        "gmsh_verbosity": int(gmsh_verbosity),
+        "second_order_linear": bool(second_order_linear),
+        "local_refinement": dict(local_refinement) if local_refinement is not None else None,
     }
 
     analysis["mesh_params"] = mesh_params
     return mesh_params
 
 
+def add_beam_section(
+    project: Dict[str, Any],
+    analysis_index: int,
+    section_type: str = "rectangular",
+    references: Optional[List[str]] = None,
+    width: Optional[float] = None,
+    height: Optional[float] = None,
+    radius: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Add an ElementGeometry1D beam section (FreeCAD 1.1: box_beam, elliptical).
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    analysis_index : int
+        Analysis index.
+    section_type : str
+        Beam cross-section type (``"rectangular"``, ``"circular"``,
+        ``"box_beam"``, ``"elliptical"``, ``"pipe"``).
+    references : list[str] or None
+        Geometry references (edges) where the section applies.
+    width : float or None
+        Section width (relevant for rectangular / box_beam / elliptical).
+    height : float or None
+        Section height (relevant for rectangular / box_beam / elliptical).
+    radius : float or None
+        Section radius (relevant for circular / pipe).
+
+    Returns
+    -------
+    dict
+        The constraint entry.
+
+    Raises
+    ------
+    ValueError
+        If *section_type* is unknown.
+    """
+    if section_type not in VALID_BEAM_SECTIONS:
+        valid = ", ".join(sorted(VALID_BEAM_SECTIONS))
+        raise ValueError(
+            f"Unknown section_type '{section_type}'. Valid: {valid}"
+        )
+
+    analysis = _get_analysis(project, analysis_index)
+
+    constraint: Dict[str, Any] = {
+        "type": "beam_section",
+        "section_type": section_type,
+        "references": list(references) if references is not None else [],
+        "width": float(width) if width is not None else None,
+        "height": float(height) if height is not None else None,
+        "radius": float(radius) if radius is not None else None,
+    }
+
+    analysis["constraints"].append(constraint)
+    return constraint
+
+
+def add_tie_constraint(
+    project: Dict[str, Any],
+    analysis_index: int,
+    master_refs: List[str],
+    slave_refs: List[str],
+) -> Dict[str, Any]:
+    """Add a tie constraint between shell faces (FreeCAD 1.1).
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    analysis_index : int
+        Analysis index.
+    master_refs : list[str]
+        Geometry references for the master surface.
+    slave_refs : list[str]
+        Geometry references for the slave surface.
+
+    Returns
+    -------
+    dict
+        The constraint entry.
+    """
+    analysis = _get_analysis(project, analysis_index)
+
+    constraint: Dict[str, Any] = {
+        "type": "tie",
+        "master_refs": list(master_refs),
+        "slave_refs": list(slave_refs),
+    }
+
+    analysis["constraints"].append(constraint)
+    return constraint
+
+
+def purge_results(
+    project: Dict[str, Any],
+    analysis_index: int,
+) -> Dict[str, Any]:
+    """Delete all result objects from an analysis (FreeCAD 1.1).
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    analysis_index : int
+        Analysis index.
+
+    Returns
+    -------
+    dict
+        The updated analysis dictionary.
+    """
+    analysis = _get_analysis(project, analysis_index)
+    analysis["results"] = None
+    return analysis
+
+
+def suppress_object(
+    project: Dict[str, Any],
+    analysis_index: int,
+    constraint_index: int,
+) -> Dict[str, Any]:
+    """Toggle suppressed state on a constraint (FreeCAD 1.1).
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    analysis_index : int
+        Analysis index.
+    constraint_index : int
+        Index of the constraint to toggle.
+
+    Returns
+    -------
+    dict
+        The updated constraint dictionary.
+
+    Raises
+    ------
+    IndexError
+        If *constraint_index* is out of range.
+    """
+    analysis = _get_analysis(project, analysis_index)
+    constraints = analysis["constraints"]
+
+    if not isinstance(constraint_index, int) or constraint_index < 0 or constraint_index >= len(constraints):
+        raise IndexError(
+            f"Constraint index {constraint_index} out of range "
+            f"(0..{len(constraints) - 1})"
+        )
+
+    constraint = constraints[constraint_index]
+    constraint["suppressed"] = not constraint.get("suppressed", False)
+    return constraint
+
+
 def solve_fem(
     project: Dict[str, Any],
     ai: int,
     solver: str = "calculix",
+    output_format: Optional[str] = None,
+    buckling_accuracy: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Configure the FEM solver for an analysis.
 
@@ -450,6 +636,11 @@ def solve_fem(
         Analysis index.
     solver : str
         Solver backend name (``"calculix"``, ``"elmer"``, ``"z88"``).
+    output_format : str or None
+        Result output format (``"vtu"``, ``"vtk"``, ``"result"``).
+        When *None*, the solver default is used.
+    buckling_accuracy : float or None
+        Buckling accuracy parameter for CalculiX solver.
 
     Returns
     -------
@@ -459,12 +650,18 @@ def solve_fem(
     Raises
     ------
     ValueError
-        If *solver* is unknown or the analysis is missing constraints
-        or mesh parameters.
+        If *solver* is unknown, *output_format* is invalid, or the
+        analysis is missing constraints or mesh parameters.
     """
     if solver not in VALID_SOLVERS:
         valid = ", ".join(sorted(VALID_SOLVERS))
         raise ValueError(f"Unknown solver '{solver}'. Valid: {valid}")
+
+    if output_format is not None and output_format not in VALID_OUTPUT_FORMATS:
+        valid = ", ".join(sorted(VALID_OUTPUT_FORMATS))
+        raise ValueError(
+            f"Unknown output_format '{output_format}'. Valid: {valid}"
+        )
 
     analysis = _get_analysis(project, ai)
 
@@ -482,6 +679,8 @@ def solve_fem(
         "status": "pending",
         "solver": solver,
         "constraints_count": len(analysis["constraints"]),
+        "output_format": output_format,
+        "buckling_accuracy": float(buckling_accuracy) if buckling_accuracy is not None else None,
     }
 
     return analysis["results"]

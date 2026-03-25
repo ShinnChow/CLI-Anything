@@ -16,7 +16,7 @@ from .document import ensure_collection
 # ---------------------------------------------------------------------------
 
 VALID_STOCK_TYPES: Set[str] = {"box", "cylinder", "from_part"}
-VALID_TOOL_TYPES: Set[str] = {"endmill", "ballnose", "drill", "chamfer", "vbit", "facemill"}
+VALID_TOOL_TYPES: Set[str] = {"endmill", "ballnose", "drill", "chamfer", "vbit", "facemill", "tap", "threadmill", "reamer"}
 
 _COLLECTION_KEY = "cam_jobs"
 
@@ -167,6 +167,8 @@ def add_profile_op(
     faces: str = "all",
     depth: Optional[float] = None,
     step_down: float = 1.0,
+    passes: Optional[int] = None,
+    finishing_pass: bool = False,
 ) -> Dict[str, Any]:
     """Add a profile (contour) machining operation.
 
@@ -182,6 +184,11 @@ def add_profile_op(
         Total cut depth. When *None*, derived from part geometry.
     step_down : float
         Depth of cut per pass.
+    passes : int or None
+        Explicit number of passes. When provided, overrides automatic
+        calculation from *step_down*.
+    finishing_pass : bool
+        When *True*, adds a light finishing pass after roughing.
 
     Returns
     -------
@@ -195,6 +202,8 @@ def add_profile_op(
         "faces": faces,
         "depth": float(depth) if depth is not None else None,
         "step_down": float(step_down),
+        "passes": int(passes) if passes is not None else None,
+        "finishing_pass": finishing_pass,
     }
 
     job["operations"].append(op)
@@ -321,6 +330,54 @@ def add_facing_op(
     return op
 
 
+def add_tapping_op(
+    project: Dict[str, Any],
+    job_index: int,
+    holes: str = "all",
+    depth: Optional[float] = None,
+    thread_pitch: float = 1.5,
+    right_hand: bool = True,
+) -> Dict[str, Any]:
+    """Add a tapping operation (G84 right-hand / G74 left-hand).
+
+    FreeCAD 1.1 introduces native tapping cycle support.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    job_index : int
+        Index of the target job.
+    holes : str
+        Hole selection (``"all"`` or specific hole references).
+    depth : float or None
+        Total tap depth. When *None*, derived from part geometry.
+    thread_pitch : float
+        Thread pitch in project units.
+    right_hand : bool
+        When *True*, uses G84 (right-hand thread). When *False*,
+        uses G74 (left-hand thread).
+
+    Returns
+    -------
+    dict
+        The operation entry.
+    """
+    job = _get_job(project, job_index)
+
+    op: Dict[str, Any] = {
+        "type": "tapping",
+        "holes": holes,
+        "depth": float(depth) if depth is not None else None,
+        "thread_pitch": float(thread_pitch),
+        "right_hand": right_hand,
+        "g_code": "G84" if right_hand else "G74",
+    }
+
+    job["operations"].append(op)
+    return op
+
+
 def set_tool(
     project: Dict[str, Any],
     job_index: int,
@@ -328,6 +385,8 @@ def set_tool(
     diameter: float = 6.0,
     flutes: int = 2,
     type: str = "endmill",
+    tool_material: Optional[str] = None,
+    coating: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Define or replace a cutting tool in a CAM job.
 
@@ -345,6 +404,10 @@ def set_tool(
         Number of cutting flutes.
     type : str
         Tool type (``"endmill"``, ``"ballnose"``, ``"drill"``, etc.).
+    tool_material : str or None
+        Tool substrate material (e.g. ``"HSS"``, ``"carbide"``).
+    coating : str or None
+        Tool coating (e.g. ``"TiN"``, ``"AlTiN"``, ``"DLC"``).
 
     Returns
     -------
@@ -368,6 +431,11 @@ def set_tool(
         "flutes": int(flutes),
         "type": type,
     }
+
+    if tool_material is not None:
+        tool["tool_material"] = str(tool_material)
+    if coating is not None:
+        tool["coating"] = str(coating)
 
     # Replace existing tool with same number, or append
     for i, existing in enumerate(job["tools"]):
@@ -444,6 +512,7 @@ def simulate_job(
         "pocket": 300.0,
         "drilling": 60.0,
         "facing": 180.0,
+        "tapping": 90.0,
     }
 
     total_time = 0.0
@@ -498,4 +567,88 @@ def export_gcode(
         "job_index": job_index,
         "path": path.strip(),
         "format": "gcode",
+    }
+
+
+def import_tool_library(
+    project: Dict[str, Any],
+    job_index: int,
+    library_path: str,
+) -> Dict[str, Any]:
+    """Import a FreeCAD 1.1 tool library file into a CAM job.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    job_index : int
+        Index of the target job.
+    library_path : str
+        Path to the tool library file to import.
+
+    Returns
+    -------
+    dict
+        Import metadata.
+
+    Raises
+    ------
+    ValueError
+        If *library_path* is invalid.
+    """
+    if not isinstance(library_path, str) or not library_path.strip():
+        raise ValueError("library_path must be a non-empty string")
+
+    job = _get_job(project, job_index)
+
+    if "metadata" not in job:
+        job["metadata"] = {}
+
+    job["metadata"]["tool_library_path"] = library_path.strip()
+
+    return {
+        "action": "import_tool_library",
+        "job_name": job["name"],
+        "job_index": job_index,
+        "library_path": library_path.strip(),
+    }
+
+
+def export_tool_library(
+    project: Dict[str, Any],
+    job_index: int,
+    path: str,
+) -> Dict[str, Any]:
+    """Export the tool library of a CAM job to a file.
+
+    Parameters
+    ----------
+    project : dict
+        The mutable project state dictionary.
+    job_index : int
+        Index of the target job.
+    path : str
+        Output file path for the tool library.
+
+    Returns
+    -------
+    dict
+        Export metadata.
+
+    Raises
+    ------
+    ValueError
+        If *path* is invalid.
+    """
+    if not isinstance(path, str) or not path.strip():
+        raise ValueError("Path must be a non-empty string")
+
+    job = _get_job(project, job_index)
+
+    return {
+        "action": "export_tool_library",
+        "job_name": job["name"],
+        "job_index": job_index,
+        "path": path.strip(),
+        "tools_count": len(job["tools"]),
     }

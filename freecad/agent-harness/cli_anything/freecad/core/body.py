@@ -23,9 +23,15 @@ VALID_FEATURE_TYPES = {
     "draft", "thickness",
     "linear_pattern", "polar_pattern", "mirrored", "multi_transform",
     "hole", "datum_plane", "datum_line", "datum_point", "shape_binder",
+    "local_coordinate_system",
 }
 VALID_REVOLUTION_AXES = {"X", "Y", "Z"}
 VALID_PATTERN_PLANES = {"XY", "XZ", "YZ"}
+VALID_THREAD_STANDARDS = {"metric", "BSW", "BSF", "BSP", "NPT"}
+VALID_ATTACHMENT_MODES = {
+    "flat_face", "normal_to_edge", "translate", "object_xyz",
+    "concentric", "tangent_plane", "inertial_cs",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -1680,6 +1686,9 @@ def hole_feature(
     depth: float = 10.0,
     threaded: bool = False,
     thread_pitch: Optional[float] = None,
+    thread_standard: str = "metric",
+    tapered: bool = False,
+    taper_angle: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Add a hole feature to a body based on a sketch with point positions.
 
@@ -1720,6 +1729,15 @@ def hole_feature(
     if depth <= 0:
         raise ValueError(f"Hole depth must be positive, got {depth}")
 
+    if thread_standard not in VALID_THREAD_STANDARDS:
+        raise ValueError(f"Invalid thread_standard '{thread_standard}'. Valid: {sorted(VALID_THREAD_STANDARDS)}")
+
+    if tapered and taper_angle is None:
+        if thread_standard == "NPT":
+            taper_angle = 1.7899  # ASME B1.20.1
+        elif thread_standard == "BSP":
+            taper_angle = 1.7899  # ISO 7-1
+
     feature: Dict[str, Any] = {
         "id": _next_feature_id(body),
         "type": "hole",
@@ -1728,6 +1746,9 @@ def hole_feature(
         "diameter": diameter,
         "depth": depth,
         "threaded": bool(threaded),
+        "thread_standard": thread_standard,
+        "tapered": bool(tapered),
+        "taper_angle": taper_angle,
     }
 
     if threaded and thread_pitch is not None:
@@ -1745,6 +1766,8 @@ def datum_plane(
     body_index: int,
     offset: float = 0.0,
     reference: str = "XY",
+    attachment_mode: Optional[str] = None,
+    attachment_refs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Add a datum plane to a body.
 
@@ -1781,6 +1804,13 @@ def datum_plane(
         "reference": reference,
     }
 
+    if attachment_mode is not None:
+        if attachment_mode not in VALID_ATTACHMENT_MODES:
+            raise ValueError(f"Invalid attachment_mode '{attachment_mode}'. Valid: {sorted(VALID_ATTACHMENT_MODES)}")
+        feature["attachment_mode"] = attachment_mode
+    if attachment_refs is not None:
+        feature["attachment_refs"] = attachment_refs
+
     body["features"].append(feature)
     return feature
 
@@ -1790,6 +1820,8 @@ def datum_line(
     body_index: int,
     point: Optional[List[float]] = None,
     direction: Optional[List[float]] = None,
+    attachment_mode: Optional[str] = None,
+    attachment_refs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Add a datum line to a body.
 
@@ -1831,6 +1863,13 @@ def datum_line(
         "direction": direction,
     }
 
+    if attachment_mode is not None:
+        if attachment_mode not in VALID_ATTACHMENT_MODES:
+            raise ValueError(f"Invalid attachment_mode '{attachment_mode}'. Valid: {sorted(VALID_ATTACHMENT_MODES)}")
+        feature["attachment_mode"] = attachment_mode
+    if attachment_refs is not None:
+        feature["attachment_refs"] = attachment_refs
+
     body["features"].append(feature)
     return feature
 
@@ -1839,6 +1878,8 @@ def datum_point(
     project: Dict[str, Any],
     body_index: int,
     position: Optional[List[float]] = None,
+    attachment_mode: Optional[str] = None,
+    attachment_refs: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Add a datum point to a body.
 
@@ -1871,7 +1912,42 @@ def datum_point(
         "position": position,
     }
 
+    if attachment_mode is not None:
+        if attachment_mode not in VALID_ATTACHMENT_MODES:
+            raise ValueError(f"Invalid attachment_mode '{attachment_mode}'. Valid: {sorted(VALID_ATTACHMENT_MODES)}")
+        feature["attachment_mode"] = attachment_mode
+    if attachment_refs is not None:
+        feature["attachment_refs"] = attachment_refs
+
     body["features"].append(feature)
+    return feature
+
+
+def local_coordinate_system(
+    project: Dict[str, Any],
+    body_index: int,
+    position: Optional[List[float]] = None,
+    x_axis: Optional[List[float]] = None,
+    y_axis: Optional[List[float]] = None,
+    z_axis: Optional[List[float]] = None,
+) -> Dict[str, Any]:
+    """Add a local coordinate system to a body (FreeCAD 1.1).
+
+    Replaces the legacy Origin object with a fully configurable
+    coordinate system that supports cross-workbench attachment.
+    """
+    bodies = project.get("bodies", [])
+    if body_index < 0 or body_index >= len(bodies):
+        raise IndexError(f"Body index {body_index} out of range (0..{len(bodies) - 1}).")
+    body = bodies[body_index]
+    feature: Dict[str, Any] = {
+        "type": "local_coordinate_system",
+        "position": position or [0.0, 0.0, 0.0],
+        "x_axis": x_axis or [1.0, 0.0, 0.0],
+        "y_axis": y_axis or [0.0, 1.0, 0.0],
+        "z_axis": z_axis or [0.0, 0.0, 1.0],
+    }
+    body.setdefault("features", []).append(feature)
     return feature
 
 
@@ -1916,3 +1992,24 @@ def shape_binder(
 
     body["features"].append(feature)
     return feature
+
+
+def toggle_freeze(
+    project: Dict[str, Any],
+    body_index: int,
+    feature_index: int,
+) -> Dict[str, Any]:
+    """Toggle the frozen state of a feature in a body (FreeCAD 1.1).
+
+    Frozen features are excluded from recomputation.
+    """
+    bodies = project.get("bodies", [])
+    if body_index < 0 or body_index >= len(bodies):
+        raise IndexError(f"Body index {body_index} out of range (0..{len(bodies) - 1}).")
+    body = bodies[body_index]
+    features = body.get("features", [])
+    if feature_index < 0 or feature_index >= len(features):
+        raise IndexError(f"Feature index {feature_index} out of range (0..{len(features) - 1}).")
+    feat = features[feature_index]
+    feat["frozen"] = not feat.get("frozen", False)
+    return feat

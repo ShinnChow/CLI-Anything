@@ -5,6 +5,8 @@
 **FreeCAD** is an open-source parametric 3D CAD modeler built on OpenCASCADE (OCCT).
 It supports Part design, Sketcher, Assembly, TechDraw, Mesh, and many other workbenches.
 
+**This harness targets FreeCAD 1.1** (released March 2026) with 258 commands across 18 workbench groups.
+
 - **Backend engine**: OpenCASCADE Technology (OCCT)
 - **Native format**: `.FCStd` (ZIP containing `Document.xml` + BREP geometry files)
 - **Python API**: `FreeCAD` (`App`) module — full document/object manipulation
@@ -63,7 +65,7 @@ The CLI maintains project state as a JSON document:
     "metadata": {
         "created": "2026-03-22T...",
         "modified": "2026-03-22T...",
-        "software": "cli-anything-freecad 1.0.0"
+        "software": "cli-anything-freecad 1.1.0"
     }
 }
 ```
@@ -79,6 +81,36 @@ The CLI maintains project state as a JSON document:
 | `material` | create, assign, list, set                             |
 | `export`   | render, info, presets                                  |
 | `session`  | undo, redo, status, history                           |
+| `draft`    | wire, rectangle, circle, polygon, fillet-2d, shapestring, ... |
+| `assembly` | new, add-part, constrain, solve, insert-part, create-simulation, ... |
+| `techdraw` | new-page, add-view, add-annotation, export-pdf, ... |
+| `mesh`     | import, from-shape, export, repair, decimate, ... |
+| `fem`      | new-analysis, mesh-generate, solve, add-beam-section, add-tie, ... |
+| `cam`      | new-job, add-profile, add-tapping, set-tool, generate-gcode, ... |
+| `measure`  | distance, length, angle, area, volume, check-geometry, ... |
+| `import`   | auto, step, iges, stl, obj, dxf, brep, 3mf, ... |
+| `surface`  | filling, sections, extend, blend-curve, sew, cut |
+| `spread`   | new, set-cell, get-cell, set-alias, import-csv, export-csv |
+
+## FreeCAD 1.1 Changes
+
+### Breaking: Datum/Origin Redesign
+FreeCAD 1.1 replaces the legacy `Origin` object with `LocalCoordinateSystem`.
+Use `body local-coordinate-system` to create configurable coordinate systems
+with cross-workbench attachment support. Datum planes, lines, and points now
+support `--attachment-mode` and `--attachment-refs` for flexible positioning.
+
+**Note:** Files created with FreeCAD 1.1 are NOT backward-compatible with 1.0.
+
+### New Features by Workbench
+- **PartDesign**: Whitworth threads (BSW/BSF/BSP/NPT), tapered holes, feature freeze toggle
+- **Assembly**: Inline part insertion, joint motion simulation
+- **CAM**: G84/G74 tapping, multi-pass profiles, new tool library system
+- **FEM**: Netgen refinement, beam sections (box/elliptical), tie constraints, result purging
+- **Sketcher**: Projection/reference modes, plane intersection, face-based external geometry
+- **Draft**: Edge-selective fillet, relative font paths
+- **TechDraw**: Area annotations with hole accounting, shape validation
+- **Measure**: Enhanced check-geometry with valid entries, additive measurements
 
 ## Rendering Pipeline
 

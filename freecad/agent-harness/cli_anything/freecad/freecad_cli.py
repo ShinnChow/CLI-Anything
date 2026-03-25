@@ -1059,16 +1059,43 @@ def sketch_set_construction(sketch_index: int, elem_id: int, flag: bool) -> None
 @click.argument("sketch_index", type=int)
 @click.argument("part_index", type=int)
 @click.option("--edge-ref", help="Edge reference (e.g. Edge1).")
+@click.option("--mode", type=click.Choice(["projection", "reference"]),
+              default="projection", help="Projection mode (FreeCAD 1.1).")
 @handle_error
 def sketch_project_external(sketch_index: int, part_index: int,
-                            edge_ref: Optional[str]) -> None:
+                            edge_ref: Optional[str], mode: str) -> None:
     """Project external geometry into a sketch."""
     sess = get_session()
     sess.snapshot(f"Project external into sketch #{sketch_index}")
     proj = sess.get_project()
     result = sketch_mod.project_external(proj, sketch_index, part_index,
-                                         edge_ref=edge_ref)
+                                         edge_ref=edge_ref, mode=mode)
     output_fn(result, "Projected external geometry")
+
+
+@sketch_group.command("intersection")
+@click.argument("sketch_index", type=int)
+@click.argument("body_index", type=int)
+@handle_error
+def sketch_intersection(sketch_index, body_index):
+    """Create external geometry from sketch-plane intersection (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = sketch_mod.intersection_external(proj, sketch_index, body_index)
+    output_fn(result, "Intersection reference created.")
+
+
+@sketch_group.command("add-external-face")
+@click.argument("sketch_index", type=int)
+@click.argument("part_index", type=int)
+@click.option("--face-ref", required=True, help="Face reference string")
+@handle_error
+def sketch_add_external_face(sketch_index, part_index, face_ref):
+    """Create external geometry from face selection (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = sketch_mod.add_external_from_face(proj, sketch_index, part_index, face_ref)
+    output_fn(result, "Face reference created.")
 
 
 # ── Body commands ────────────────────────────────────────────────────
@@ -1553,16 +1580,24 @@ def body_thickness_feature(body_index: int, thickness_val: float,
 @click.option("--depth", default=10.0, type=float, help="Hole depth.")
 @click.option("--threaded", is_flag=True, help="Threaded hole.")
 @click.option("--thread-pitch", type=float, help="Thread pitch.")
+@click.option("--thread-standard", type=click.Choice(["metric", "BSW", "BSF", "BSP", "NPT"]),
+              default="metric", help="Thread standard (FreeCAD 1.1).")
+@click.option("--tapered", is_flag=True, help="Tapered hole (FreeCAD 1.1).")
+@click.option("--taper-angle", type=float, default=None, help="Taper angle (FreeCAD 1.1).")
 @handle_error
 def body_hole(body_index: int, sketch_index: int, diameter: float,
-              depth: float, threaded: bool, thread_pitch: Optional[float]) -> None:
+              depth: float, threaded: bool, thread_pitch: Optional[float],
+              thread_standard: str, tapered: bool,
+              taper_angle: Optional[float]) -> None:
     """Add a hole feature to a body."""
     sess = get_session()
     sess.snapshot(f"Hole body #{body_index}")
     proj = sess.get_project()
     result = body_mod.hole_feature(proj, body_index, sketch_index,
                                    diameter=diameter, depth=depth,
-                                   threaded=threaded, thread_pitch=thread_pitch)
+                                   threaded=threaded, thread_pitch=thread_pitch,
+                                   thread_standard=thread_standard,
+                                   tapered=tapered, taper_angle=taper_angle)
     output_fn(result, "Added hole feature")
 
 
@@ -1636,13 +1671,21 @@ def body_multi_transform(body_index: int, transforms_json: str) -> None:
 @click.argument("body_index", type=int)
 @click.option("--offset", default=0.0, type=float, help="Offset from reference.")
 @click.option("--reference", default="XY", type=click.Choice(["XY", "XZ", "YZ"]))
+@click.option("--attachment-mode", type=str, default=None, help="Attachment mode (FreeCAD 1.1).")
+@click.option("--attachment-refs", type=str, default=None,
+              help="Comma-separated attachment references (FreeCAD 1.1).")
 @handle_error
-def body_datum_plane(body_index: int, offset: float, reference: str) -> None:
+def body_datum_plane(body_index: int, offset: float, reference: str,
+                     attachment_mode: Optional[str],
+                     attachment_refs: Optional[str]) -> None:
     """Add a datum plane to a body."""
     sess = get_session()
     sess.snapshot(f"Datum plane body #{body_index}")
     proj = sess.get_project()
-    result = body_mod.datum_plane(proj, body_index, offset=offset, reference=reference)
+    att_refs = [r.strip() for r in attachment_refs.split(",")] if attachment_refs else None
+    result = body_mod.datum_plane(proj, body_index, offset=offset, reference=reference,
+                                  attachment_mode=attachment_mode,
+                                  attachment_refs=att_refs)
     output_fn(result, "Added datum plane")
 
 
@@ -1650,29 +1693,45 @@ def body_datum_plane(body_index: int, offset: float, reference: str) -> None:
 @click.argument("body_index", type=int)
 @click.option("--point", default="0,0,0", help="Base point x,y,z.")
 @click.option("--direction", "-d", default="0,0,1", help="Direction x,y,z.")
+@click.option("--attachment-mode", type=str, default=None, help="Attachment mode (FreeCAD 1.1).")
+@click.option("--attachment-refs", type=str, default=None,
+              help="Comma-separated attachment references (FreeCAD 1.1).")
 @handle_error
-def body_datum_line(body_index: int, point: str, direction: str) -> None:
+def body_datum_line(body_index: int, point: str, direction: str,
+                    attachment_mode: Optional[str],
+                    attachment_refs: Optional[str]) -> None:
     """Add a datum line to a body."""
     sess = get_session()
     sess.snapshot(f"Datum line body #{body_index}")
     proj = sess.get_project()
     pt = _parse_vec3(point)
     d = _parse_vec3(direction)
-    result = body_mod.datum_line(proj, body_index, point=pt, direction=d)
+    att_refs = [r.strip() for r in attachment_refs.split(",")] if attachment_refs else None
+    result = body_mod.datum_line(proj, body_index, point=pt, direction=d,
+                                 attachment_mode=attachment_mode,
+                                 attachment_refs=att_refs)
     output_fn(result, "Added datum line")
 
 
 @body_group.command("datum-point")
 @click.argument("body_index", type=int)
 @click.option("--position", "-p", default="0,0,0", help="Position x,y,z.")
+@click.option("--attachment-mode", type=str, default=None, help="Attachment mode (FreeCAD 1.1).")
+@click.option("--attachment-refs", type=str, default=None,
+              help="Comma-separated attachment references (FreeCAD 1.1).")
 @handle_error
-def body_datum_point(body_index: int, position: str) -> None:
+def body_datum_point(body_index: int, position: str,
+                     attachment_mode: Optional[str],
+                     attachment_refs: Optional[str]) -> None:
     """Add a datum point to a body."""
     sess = get_session()
     sess.snapshot(f"Datum point body #{body_index}")
     proj = sess.get_project()
     pos = _parse_vec3(position)
-    result = body_mod.datum_point(proj, body_index, position=pos)
+    att_refs = [r.strip() for r in attachment_refs.split(",")] if attachment_refs else None
+    result = body_mod.datum_point(proj, body_index, position=pos,
+                                  attachment_mode=attachment_mode,
+                                  attachment_refs=att_refs)
     output_fn(result, "Added datum point")
 
 
@@ -1690,6 +1749,38 @@ def body_shape_binder(body_index: int, source_body_index: int,
     result = body_mod.shape_binder(proj, body_index, source_body_index,
                                    feature_ref=feature_ref)
     output_fn(result, "Added shape binder")
+
+
+@body_group.command("local-coordinate-system")
+@click.argument("body_index", type=int)
+@click.option("--position", default=None, help="Position as x,y,z")
+@click.option("--x-axis", default=None, help="X axis direction as x,y,z")
+@click.option("--y-axis", default=None, help="Y axis direction as x,y,z")
+@click.option("--z-axis", default=None, help="Z axis direction as x,y,z")
+@handle_error
+def body_local_coordinate_system(body_index, position, x_axis, y_axis, z_axis):
+    """Add a local coordinate system to a body (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    pos = _parse_vec3(position) if position else None
+    xa = _parse_vec3(x_axis) if x_axis else None
+    ya = _parse_vec3(y_axis) if y_axis else None
+    za = _parse_vec3(z_axis) if z_axis else None
+    result = body_mod.local_coordinate_system(proj, body_index, pos, xa, ya, za)
+    output_fn(result, "Local coordinate system added.")
+
+
+@body_group.command("toggle-freeze")
+@click.argument("body_index", type=int)
+@click.argument("feature_index", type=int)
+@handle_error
+def body_toggle_freeze(body_index, feature_index):
+    """Toggle frozen state of a feature (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = body_mod.toggle_freeze(proj, body_index, feature_index)
+    state = "frozen" if result.get("frozen") else "unfrozen"
+    output_fn(result, f"Feature {feature_index} is now {state}.")
 
 
 # ── Material commands ────────────────────────────────────────────────
@@ -2040,12 +2131,16 @@ def measure_inertia(index: int) -> None:
 
 @measure_group.command("check-geometry")
 @click.argument("index", type=int)
+@click.option("--include-valid", is_flag=True, help="Include valid shape entries in report.")
+@click.option("--skip", default=None, type=str, help="Comma-separated part indices to skip.")
 @handle_error
-def measure_check_geometry(index: int) -> None:
+def measure_check_geometry(index: int, include_valid: bool, skip: Optional[str]) -> None:
     """Perform geometry validation on a part."""
     sess = get_session()
     proj = sess.get_project()
-    result = measure_mod.check_geometry(proj, index)
+    skip_list = [int(x.strip()) for x in skip.split(",")] if skip else None
+    result = measure_mod.check_geometry(proj, index, include_valid=include_valid,
+                                        skip_objects=skip_list)
     output_fn(result, "Geometry check:")
 
 
@@ -2527,15 +2622,17 @@ def draft_text(text_content: str, name: Optional[str],
 @click.argument("font_file", type=str)
 @click.option("--size", default=10.0, type=float, help="Font size.")
 @click.option("--name", "-n", help="Object name.")
+@click.option("--relative-font-path", is_flag=True, help="Use relative font path.")
 @handle_error
 def draft_shapestring(text_content: str, font_file: str, size: float,
-                      name: Optional[str]) -> None:
+                      name: Optional[str], relative_font_path: bool) -> None:
     """Create a ShapeString."""
     sess = get_session()
     sess.snapshot("Draft shapestring")
     proj = sess.get_project()
     result = draft_mod.draft_shapestring(proj, text=text_content,
-                                         font_file=font_file, size=size, name=name)
+                                         font_file=font_file, size=size, name=name,
+                                         font_path_relative=relative_font_path)
     output_fn(result, f"Created shapestring: {result.get('name', '')}")
 
 
@@ -2831,13 +2928,15 @@ def draft_extrude(index: int, vector: Optional[str], name: Optional[str]) -> Non
 @draft_group.command("fillet-2d")
 @click.argument("index", type=int)
 @click.option("--radius", "-r", default=1.0, type=float, help="Fillet radius.")
+@click.option("--edges", default=None, type=str, help="Comma-separated edge indices to fillet.")
 @handle_error
-def draft_fillet_2d(index: int, radius: float) -> None:
+def draft_fillet_2d(index: int, radius: float, edges: Optional[str]) -> None:
     """Apply a 2D fillet to a draft object."""
     sess = get_session()
     sess.snapshot(f"Draft fillet-2d #{index}")
     proj = sess.get_project()
-    result = draft_mod.draft_fillet_2d(proj, index, radius=radius)
+    edge_list = [int(e) for e in edges.split(",")] if edges else None
+    result = draft_mod.draft_fillet_2d(proj, index, radius=radius, edges=edge_list)
     output_fn(result, f"Fillet-2D: {result.get('name', '')}")
 
 
@@ -3320,6 +3419,52 @@ def assembly_collapse(asm_index: int) -> None:
     output_fn(result, "Assembly collapsed")
 
 
+@assembly_group.command("insert-part")
+@click.argument("asm_index", type=int)
+@click.option("--type", "part_type", default="box", help="Part type to insert")
+@click.option("--name", default=None, help="Part name")
+@click.option("-P", "--param", multiple=True, help="Parameters as key=value")
+@click.option("--transform", default=None, help="Transform as x,y,z")
+@handle_error
+def assembly_insert_part(asm_index, part_type, name, param, transform):
+    """Insert a new inline part into an assembly (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    params = _parse_params(param) if param else None
+    t = _parse_vec3(transform) if transform else None
+    result = asm_mod.insert_new_part(proj, asm_index, part_type, name, params, t)
+    output_fn(result, "Part inserted into assembly.")
+
+
+@assembly_group.command("create-simulation")
+@click.argument("asm_index", type=int)
+@click.option("--name", default=None, help="Simulation name")
+@click.option("--duration", type=float, default=5.0, help="Duration in seconds")
+@click.option("--fps", type=int, default=24, help="Frames per second")
+@handle_error
+def assembly_create_simulation(asm_index, name, duration, fps):
+    """Create a joint motion simulation (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = asm_mod.create_simulation(proj, asm_index, name, duration, fps)
+    output_fn(result, "Simulation created.")
+
+
+@assembly_group.command("add-sim-step")
+@click.argument("asm_index", type=int)
+@click.argument("sim_index", type=int)
+@click.option("--joint", type=int, required=True, help="Joint index")
+@click.option("--start", type=float, default=0.0, help="Start value")
+@click.option("--end", type=float, default=1.0, help="End value")
+@handle_error
+def assembly_add_sim_step(asm_index, sim_index, joint, start, end):
+    """Add a motion step to a simulation (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = asm_mod.add_simulation_step(proj, asm_index, sim_index, joint, start, end)
+    output_fn(result, "Simulation step added.")
+
+
 # ── TechDraw commands ────────────────────────────────────────────────
 
 @cli.group("techdraw")
@@ -3454,15 +3599,19 @@ def techdraw_add_dimension(page_index: int, view_index: int, dim_type: str,
 @click.argument("page_index", type=int)
 @click.argument("text_content", type=str)
 @click.option("--position", help="Position x,y.")
+@click.option("--area", is_flag=True, help="Compute area accounting for face holes.")
+@click.option("--validate-shape", is_flag=True, default=False, help="Enable shape validation.")
 @handle_error
 def techdraw_add_annotation(page_index: int, text_content: str,
-                            position: Optional[str]) -> None:
+                            position: Optional[str], area: bool,
+                            validate_shape: bool) -> None:
     """Add a text annotation to a page."""
     sess = get_session()
     sess.snapshot(f"Add annotation to page #{page_index}")
     proj = sess.get_project()
     p = _parse_vec2(position) if position else None
-    result = td_mod.add_annotation(proj, page_index, text_content, position=p)
+    result = td_mod.add_annotation(proj, page_index, text_content, position=p,
+                                   area_mode=area, shape_validation=validate_shape)
     output_fn(result, "Added annotation")
 
 
@@ -3694,16 +3843,32 @@ def fem_set_material(ai: int, material_index: int) -> None:
 @click.option("--max-size", type=float, help="Max element size.")
 @click.option("--min-size", type=float, help="Min element size.")
 @click.option("--element-type", default="Tet10", help="Element type.")
+@click.option("--mesher", type=click.Choice(["gmsh", "netgen"]), default="gmsh",
+              help="Mesher backend (FreeCAD 1.1).")
+@click.option("--gmsh-verbosity", type=int, default=1,
+              help="Gmsh verbosity level (FreeCAD 1.1).")
+@click.option("--second-order-linear", is_flag=True,
+              help="Second order linear elements (FreeCAD 1.1).")
+@click.option("--local-refinement", type=str, default=None,
+              help="Local refinement as JSON string (FreeCAD 1.1).")
 @handle_error
 def fem_mesh_generate(ai: int, max_size: Optional[float],
-                      min_size: Optional[float], element_type: str) -> None:
+                      min_size: Optional[float], element_type: str,
+                      mesher: str, gmsh_verbosity: int,
+                      second_order_linear: bool,
+                      local_refinement: Optional[str]) -> None:
     """Configure mesh generation for an analysis."""
     sess = get_session()
     sess.snapshot(f"Generate FEM mesh for analysis #{ai}")
     proj = sess.get_project()
+    lr = json.loads(local_refinement) if local_refinement else None
     result = fem_mod.generate_fem_mesh(proj, ai, max_size=max_size,
                                        min_size=min_size,
-                                       element_type=element_type)
+                                       element_type=element_type,
+                                       mesher=mesher,
+                                       gmsh_verbosity=gmsh_verbosity,
+                                       second_order_linear=second_order_linear,
+                                       local_refinement=lr)
     output_fn(result, "Mesh parameters set")
 
 
@@ -3711,13 +3876,20 @@ def fem_mesh_generate(ai: int, max_size: Optional[float],
 @click.argument("ai", type=int)
 @click.option("--solver", default="calculix",
               type=click.Choice(["calculix", "elmer", "z88"]))
+@click.option("--output-format", type=click.Choice(["vtu", "vtk", "result"]),
+              default=None, help="Output format (FreeCAD 1.1).")
+@click.option("--buckling-accuracy", type=float, default=None,
+              help="Buckling accuracy (FreeCAD 1.1).")
 @handle_error
-def fem_solve(ai: int, solver: str) -> None:
+def fem_solve(ai: int, solver: str, output_format: Optional[str],
+              buckling_accuracy: Optional[float]) -> None:
     """Solve a FEM analysis."""
     sess = get_session()
     sess.snapshot(f"Solve analysis #{ai}")
     proj = sess.get_project()
-    result = fem_mod.solve_fem(proj, ai, solver=solver)
+    result = fem_mod.solve_fem(proj, ai, solver=solver,
+                               output_format=output_format,
+                               buckling_accuracy=buckling_accuracy)
     output_fn(result, "Analysis solver configured")
 
 
@@ -3744,6 +3916,64 @@ def fem_export_results(ai: int, path: str, fmt: str) -> None:
     proj = sess.get_project()
     result = fem_mod.export_fem_results(proj, ai, path, format=fmt)
     output_fn(result, f"Exported results: {path}")
+
+
+@fem_group.command("add-beam-section")
+@click.argument("analysis_index", type=int)
+@click.option("--section-type", type=click.Choice(["rectangular", "circular",
+              "box_beam", "elliptical", "pipe"]), default="rectangular")
+@click.option("--references", default=None, help="Comma-separated geometry refs")
+@click.option("--width", type=float, default=None)
+@click.option("--height", type=float, default=None)
+@click.option("--radius", type=float, default=None)
+@handle_error
+def fem_add_beam_section(analysis_index, section_type, references, width, height, radius):
+    """Add an ElementGeometry1D beam section (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    refs = references.split(",") if references else None
+    result = fem_mod.add_beam_section(proj, analysis_index, section_type, refs,
+                                      width, height, radius)
+    output_fn(result, "Beam section added.")
+
+
+@fem_group.command("add-tie")
+@click.argument("analysis_index", type=int)
+@click.option("--master-refs", required=True, help="Comma-separated master refs")
+@click.option("--slave-refs", required=True, help="Comma-separated slave refs")
+@handle_error
+def fem_add_tie(analysis_index, master_refs, slave_refs):
+    """Add a tie constraint between shell faces (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = fem_mod.add_tie_constraint(proj, analysis_index,
+                                        master_refs.split(","),
+                                        slave_refs.split(","))
+    output_fn(result, "Tie constraint added.")
+
+
+@fem_group.command("purge-results")
+@click.argument("analysis_index", type=int)
+@handle_error
+def fem_purge_results(analysis_index):
+    """Delete all result objects from an analysis (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = fem_mod.purge_results(proj, analysis_index)
+    output_fn(result, "Results purged.")
+
+
+@fem_group.command("suppress")
+@click.argument("analysis_index", type=int)
+@click.argument("constraint_index", type=int)
+@handle_error
+def fem_suppress(analysis_index, constraint_index):
+    """Toggle suppressed state on a constraint (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = fem_mod.suppress_object(proj, analysis_index, constraint_index)
+    state = "suppressed" if result.get("suppressed") else "active"
+    output_fn(result, f"Constraint is now {state}.")
 
 
 # ── CAM commands ─────────────────────────────────────────────────────
@@ -3791,15 +4021,19 @@ def cam_set_stock(job_index: int, stock_type: str, extra_x: float,
 @click.option("--faces", default="all", help="Face selection.")
 @click.option("--depth", type=float, help="Cut depth.")
 @click.option("--step-down", default=1.0, type=float, help="Step-down per pass.")
+@click.option("--passes", type=int, default=None, help="Number of passes (FreeCAD 1.1).")
+@click.option("--finishing-pass", is_flag=True, help="Add finishing pass (FreeCAD 1.1).")
 @handle_error
 def cam_add_profile(job_index: int, faces: str, depth: Optional[float],
-                    step_down: float) -> None:
+                    step_down: float, passes: Optional[int],
+                    finishing_pass: bool) -> None:
     """Add a profile (contour) operation."""
     sess = get_session()
     sess.snapshot(f"Add profile to job #{job_index}")
     proj = sess.get_project()
     result = cam_mod.add_profile_op(proj, job_index, faces=faces, depth=depth,
-                                    step_down=step_down)
+                                    step_down=step_down, passes=passes,
+                                    finishing_pass=finishing_pass)
     output_fn(result, "Added profile operation")
 
 
@@ -3861,15 +4095,19 @@ def cam_add_facing(job_index: int, depth: float, step_over: float) -> None:
 @click.option("--type", "tool_type", default="endmill",
               type=click.Choice(["endmill", "ballnose", "drill", "chamfer",
                                  "vbit", "facemill"]))
+@click.option("--material", type=str, default=None, help="Tool material (FreeCAD 1.1).")
+@click.option("--coating", type=str, default=None, help="Tool coating (FreeCAD 1.1).")
 @handle_error
 def cam_set_tool(job_index: int, tool_number: int, diameter: float,
-                 flutes: int, tool_type: str) -> None:
+                 flutes: int, tool_type: str, material: Optional[str],
+                 coating: Optional[str]) -> None:
     """Define a cutting tool."""
     sess = get_session()
     sess.snapshot(f"Set tool on job #{job_index}")
     proj = sess.get_project()
     result = cam_mod.set_tool(proj, job_index, tool_number=tool_number,
-                              diameter=diameter, flutes=flutes, type=tool_type)
+                              diameter=diameter, flutes=flutes, type=tool_type,
+                              material=material, coating=coating)
     output_fn(result, f"Tool T{tool_number} defined")
 
 
@@ -3908,6 +4146,45 @@ def cam_export_gcode(job_index: int, path: str) -> None:
     output_fn(result, f"Exported G-code: {path}")
 
 
+@cam_group.command("add-tapping")
+@click.argument("job_index", type=int)
+@click.option("--holes", default="all", help="Hole selection")
+@click.option("--depth", type=float, default=None, help="Tapping depth")
+@click.option("--thread-pitch", type=float, default=1.5, help="Thread pitch")
+@click.option("--left-hand", is_flag=True, help="Use G74 left-hand tapping")
+@handle_error
+def cam_add_tapping(job_index, holes, depth, thread_pitch, left_hand):
+    """Add a tapping operation G84/G74 (FreeCAD 1.1)."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = cam_mod.add_tapping_op(proj, job_index, holes, depth, thread_pitch, not left_hand)
+    output_fn(result, "Tapping operation added.")
+
+
+@cam_group.command("import-tool-library")
+@click.argument("job_index", type=int)
+@click.argument("path", type=click.Path())
+@handle_error
+def cam_import_tool_library(job_index, path):
+    """Import a FreeCAD 1.1 tool library file."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = cam_mod.import_tool_library(proj, job_index, path)
+    output_fn(result, "Tool library imported.")
+
+
+@cam_group.command("export-tool-library")
+@click.argument("job_index", type=int)
+@click.argument("path", type=click.Path())
+@handle_error
+def cam_export_tool_library(job_index, path):
+    """Export CAM job tool library."""
+    sess = get_session()
+    proj = sess.get_project()
+    result = cam_mod.export_tool_library(proj, job_index, path)
+    output_fn(result, "Tool library exported.")
+
+
 # ── REPL ─────────────────────────────────────────────────────────────
 
 @cli.command("repl")
@@ -3931,8 +4208,8 @@ def repl(project_path: Optional[str]) -> None:
     _repl_commands = {
         "document": "new|open|save|info|profiles",
         "part": "add|remove|list|get|transform|boolean|copy|mirror|scale|offset|thickness|compound|explode|fillet-3d|chamfer-3d|loft|sweep|revolve|extrude|section|slice|line-3d|wire|polygon-3d|info",
-        "sketch": "new|add-line|add-circle|add-rect|add-arc|constrain|close|list|get|add-point|add-ellipse|add-polygon|add-bspline|add-slot|edit-element|remove-element|remove-constraint|edit-constraint|mirror|offset|trim|extend|validate|solve-status|set-construction|project-external",
-        "body": "new|pad|pocket|fillet|chamfer|revolution|list|get|groove|additive-loft|additive-pipe|additive-helix|subtractive-loft|subtractive-pipe|subtractive-helix|additive-box|additive-cylinder|additive-sphere|additive-cone|additive-torus|additive-wedge|subtractive-box|subtractive-cylinder|subtractive-sphere|subtractive-cone|subtractive-torus|subtractive-wedge|draft-feature|thickness-feature|hole|linear-pattern|polar-pattern|mirrored|multi-transform|datum-plane|datum-line|datum-point|shape-binder",
+        "sketch": "new|add-line|add-circle|add-rect|add-arc|constrain|close|list|get|add-point|add-ellipse|add-polygon|add-bspline|add-slot|edit-element|remove-element|remove-constraint|edit-constraint|mirror|offset|trim|extend|validate|solve-status|set-construction|project-external|intersection|add-external-face",
+        "body": "new|pad|pocket|fillet|chamfer|revolution|list|get|groove|additive-loft|additive-pipe|additive-helix|subtractive-loft|subtractive-pipe|subtractive-helix|additive-box|additive-cylinder|additive-sphere|additive-cone|additive-torus|additive-wedge|subtractive-box|subtractive-cylinder|subtractive-sphere|subtractive-cone|subtractive-torus|subtractive-wedge|draft-feature|thickness-feature|hole|linear-pattern|polar-pattern|mirrored|multi-transform|datum-plane|datum-line|datum-point|shape-binder|local-coordinate-system|toggle-freeze",
         "material": "create|assign|list|get|set|presets|import-material|export-material",
         "export": "render|info|presets",
         "session": "undo|redo|status|history",
@@ -3942,10 +4219,10 @@ def repl(project_path: Optional[str]) -> None:
         "draft": "wire|rectangle|circle|ellipse|polygon|bspline|bezier|point|text|shapestring|dimension|label|hatch|move|rotate|scale|mirror|offset|array-linear|array-polar|array-path|copy|clone|upgrade|downgrade|trim|join|extrude|fillet-2d|to-sketch|list|get|remove",
         "surface": "filling|sections|extend|blend-curve|sew|cut",
         "import": "auto|step|iges|stl|obj|dxf|svg|brep|3mf|ply|off|gltf|info",
-        "assembly": "new|add-part|remove-part|list|get|constrain|solve|dof|bom|explode|collapse",
+        "assembly": "new|add-part|remove-part|list|get|constrain|solve|dof|bom|explode|collapse|insert-part|create-simulation|add-sim-step",
         "techdraw": "new-page|set-template|add-view|add-projection-group|add-section-view|add-detail-view|add-dimension|add-annotation|add-leader|add-centerline|add-hatch|export-pdf|export-svg|list-views|get-view",
-        "fem": "new-analysis|add-fixed|add-force|add-pressure|add-displacement|add-temperature|add-heatflux|set-material|mesh-generate|solve|results|export-results",
-        "cam": "new-job|set-stock|add-profile|add-pocket|add-drilling|add-facing|set-tool|generate-gcode|simulate|export-gcode",
+        "fem": "new-analysis|add-fixed|add-force|add-pressure|add-displacement|add-temperature|add-heatflux|set-material|mesh-generate|solve|results|export-results|add-beam-section|add-tie|purge-results|suppress",
+        "cam": "new-job|set-stock|add-profile|add-pocket|add-drilling|add-facing|set-tool|generate-gcode|simulate|export-gcode|add-tapping|import-tool-library|export-tool-library",
     }
 
     pt_session = skin.create_prompt_session()
