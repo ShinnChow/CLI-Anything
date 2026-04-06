@@ -226,3 +226,5 @@ assets/gen_typing_gif.py
 !/intelwatch/agent-harness/
 !/intelwatch/
 !/exa/
+!/n8n/
+!/n8n/agent-harness/
