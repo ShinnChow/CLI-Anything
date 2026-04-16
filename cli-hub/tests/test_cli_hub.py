@@ -12,7 +12,16 @@ import requests
 
 from cli_hub import __version__
 from cli_hub.registry import fetch_registry, fetch_all_clis, get_cli, search_clis, list_categories
-from cli_hub.installer import install_cli, uninstall_cli, get_installed, _load_installed, _save_installed
+from cli_hub.installer import (
+    install_cli,
+    uninstall_cli,
+    get_installed,
+    _load_installed,
+    _save_installed,
+    _run_command,
+    _install_strategy,
+    _UV_INSTALL_HINT,
+)
 from cli_hub.analytics import _is_enabled, track_event, track_install, track_uninstall as analytics_track_uninstall, track_visit, track_first_run, _detect_is_agent
 from cli_hub.cli import main
 
@@ -262,6 +271,221 @@ class TestInstaller:
         assert "already available" in msg
 
 
+GENERATE_VEO_CLI = {
+    "name": "generate-veo-video",
+    "display_name": "Generate Veo Video",
+    "version": "0.2.5",
+    "description": "CLI for generating videos with Google Veo 3.1",
+    "category": "ai",
+    "entry_point": "generate-veo",
+    "_source": "public",
+    "package_manager": "uv",
+    "install_cmd": "uv tool install git+https://github.com/charles-forsyth/generate-veo-video.git",
+    "uninstall_cmd": "uv tool uninstall generate-veo-video",
+    "update_cmd": "uv tool upgrade generate-veo-video",
+}
+
+
+class TestUvStrategy:
+    """Tests for uv-managed public CLI installs (e.g. generate-veo-video)."""
+
+    def test_strategy_detected_as_uv(self):
+        assert _install_strategy(GENERATE_VEO_CLI) == "uv"
+
+    def test_strategy_uv_not_overridden_by_install_strategy_field(self):
+        """If install_strategy is explicitly set it takes priority over package_manager."""
+        cli = {**GENERATE_VEO_CLI, "install_strategy": "command"}
+        assert _install_strategy(cli) == "command"
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer.INSTALLED_FILE", Path(tempfile.mktemp()))
+    @patch("cli_hub.installer._find_uv", return_value="/usr/bin/uv")
+    def test_install_uv_success(self, mock_find_uv, mock_get_cli, mock_run):
+        mock_get_cli.return_value = GENERATE_VEO_CLI
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        success, msg = install_cli("generate-veo-video")
+        assert success
+        assert "Generate Veo Video" in msg
+
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer._find_uv", return_value=None)
+    def test_install_uv_missing_shows_hint(self, mock_find_uv, mock_get_cli):
+        mock_get_cli.return_value = GENERATE_VEO_CLI
+        success, msg = install_cli("generate-veo-video")
+        assert not success
+        assert "uv is not installed" in msg
+        assert "astral.sh/uv" in msg
+        assert "brew install uv" in msg
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer.INSTALLED_FILE", Path(tempfile.mktemp()))
+    @patch("cli_hub.installer._find_uv", return_value="/usr/bin/uv")
+    def test_uninstall_uv_success(self, mock_find_uv, mock_get_cli, mock_run):
+        mock_get_cli.return_value = GENERATE_VEO_CLI
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        success, msg = uninstall_cli("generate-veo-video")
+        assert success
+        assert "Generate Veo Video" in msg
+
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer._find_uv", return_value=None)
+    def test_uninstall_uv_missing_shows_hint(self, mock_find_uv, mock_get_cli):
+        mock_get_cli.return_value = GENERATE_VEO_CLI
+        success, msg = uninstall_cli("generate-veo-video")
+        assert not success
+        assert "uv is not installed" in msg
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer.INSTALLED_FILE", Path(tempfile.mktemp()))
+    @patch("cli_hub.installer._find_uv", return_value="/usr/bin/uv")
+    def test_update_uv_success(self, mock_find_uv, mock_get_cli, mock_run):
+        mock_get_cli.return_value = GENERATE_VEO_CLI
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        from cli_hub.installer import update_cli
+        success, msg = update_cli("generate-veo-video")
+        assert success
+        assert "Generate Veo Video" in msg
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer._find_uv", return_value="/usr/bin/uv")
+    def test_install_uv_failure_propagated(self, mock_find_uv, mock_get_cli, mock_run):
+        mock_get_cli.return_value = GENERATE_VEO_CLI
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error: package not found")
+        success, msg = install_cli("generate-veo-video")
+        assert not success
+        assert "failed" in msg.lower()
+
+
+# ─── Script / pipe-command strategy tests (jimeng / Dreamina) ─────────
+
+JIMENG_CLI = {
+    "name": "jimeng",
+    "display_name": "Jimeng / Dreamina CLI",
+    "version": "latest",
+    "description": "ByteDance AI image and video generation CLI",
+    "category": "ai",
+    "entry_point": "dreamina",
+    "_source": "public",
+    "install_strategy": "command",
+    "package_manager": "script",
+    "install_cmd": "curl -s https://jimeng.jianying.com/cli | bash",
+}
+
+
+class TestScriptStrategy:
+    """Tests for script/pipe-command installs (e.g. jimeng curl | bash)."""
+
+    # ── _install_strategy routing ──────────────────────────────────────
+
+    def test_strategy_detected_as_command(self):
+        """install_strategy field takes priority — jimeng routes to 'command'."""
+        assert _install_strategy(JIMENG_CLI) == "command"
+
+    def test_strategy_script_package_manager_without_field_falls_back_to_command(self):
+        """Without install_strategy field, script package_manager still routes to 'command'."""
+        cli = {**JIMENG_CLI}
+        del cli["install_strategy"]
+        assert _install_strategy(cli) == "command"
+
+    # ── _run_command shell detection ───────────────────────────────────
+
+    @patch("cli_hub.installer.subprocess.run")
+    def test_run_command_uses_shell_true_for_pipe(self, mock_run):
+        """Pipe character triggers shell=True so bash can interpret it."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        _run_command("curl -s https://jimeng.jianying.com/cli | bash")
+        mock_run.assert_called_once()
+        _, kwargs = mock_run.call_args
+        assert kwargs.get("shell") is True
+        # cmd passed as a single string, not a list
+        args = mock_run.call_args[0][0]
+        assert isinstance(args, str)
+        assert "| bash" in args
+
+    @patch("cli_hub.installer.subprocess.run")
+    def test_run_command_uses_shell_false_for_simple_command(self, mock_run):
+        """Simple commands (no shell operators) must NOT use shell=True."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        _run_command("brew install --cask 1password-cli")
+        _, kwargs = mock_run.call_args
+        assert kwargs.get("shell") is False or kwargs.get("shell") is None
+
+    @patch("cli_hub.installer.subprocess.run")
+    def test_run_command_uses_shell_true_for_and_operator(self, mock_run):
+        """&& operator also triggers shell=True."""
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        _run_command("curl -O https://example.com/install.sh && bash install.sh")
+        _, kwargs = mock_run.call_args
+        assert kwargs.get("shell") is True
+
+    # ── Full install flow ──────────────────────────────────────────────
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer.INSTALLED_FILE", Path(tempfile.mktemp()))
+    def test_install_jimeng_success(self, mock_get_cli, mock_run):
+        """install_cli('jimeng') succeeds and invokes the pipe command via shell."""
+        mock_get_cli.return_value = JIMENG_CLI
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        success, msg = install_cli("jimeng")
+
+        assert success, f"Expected success but got: {msg}"
+        assert "Jimeng" in msg
+
+        mock_run.assert_called_once()
+        _, kwargs = mock_run.call_args
+        assert kwargs.get("shell") is True
+        assert "| bash" in mock_run.call_args[0][0]
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer.INSTALLED_FILE", Path(tempfile.mktemp()))
+    def test_install_jimeng_failure_propagated(self, mock_get_cli, mock_run):
+        """A non-zero exit from the curl|bash script surfaces as failure."""
+        mock_get_cli.return_value = JIMENG_CLI
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="curl: (6) Could not resolve host"
+        )
+
+        success, msg = install_cli("jimeng")
+
+        assert not success
+        assert "failed" in msg.lower()
+
+    @patch("cli_hub.installer.get_cli")
+    def test_uninstall_jimeng_no_cmd_returns_graceful_message(self, mock_get_cli):
+        """Uninstalling jimeng (no uninstall_cmd defined) returns a non-crash message."""
+        mock_get_cli.return_value = JIMENG_CLI  # no uninstall_cmd key
+
+        success, msg = uninstall_cli("jimeng")
+
+        assert not success
+        # Should mention the CLI name or explain no command available — never crash
+        assert msg
+
+    @patch("cli_hub.installer.subprocess.run")
+    @patch("cli_hub.installer.get_cli")
+    @patch("cli_hub.installer.INSTALLED_FILE", Path(tempfile.mktemp()))
+    def test_install_jimeng_recorded_in_installed_json(self, mock_get_cli, mock_run):
+        """After a successful install, jimeng appears in installed.json."""
+        installed_file = Path(tempfile.mktemp())
+        mock_get_cli.return_value = JIMENG_CLI
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        with patch("cli_hub.installer.INSTALLED_FILE", installed_file):
+            success, _ = install_cli("jimeng")
+            assert success
+            data = json.loads(installed_file.read_text())
+            assert "jimeng" in data
+            assert data["jimeng"]["strategy"] == "command"
+            assert data["jimeng"]["package_manager"] == "script"
+
+
 # ─── Analytics tests ──────────────────────────────────────────────────
 
 
@@ -501,3 +725,48 @@ class TestCLI:
         """When agent env detected, track_visit is called with is_agent=True."""
         result = self.runner.invoke(main, ["--version"])
         mock_visit.assert_called_once_with(is_agent=True)
+
+    @patch("cli_hub.cli.track_first_run")
+    @patch("cli_hub.cli.track_visit")
+    @patch("cli_hub.cli._detect_is_agent", return_value=False)
+    @patch("cli_hub.cli.install_cli", return_value=(True, "Installed Jimeng / Dreamina CLI (dreamina)"))
+    @patch("cli_hub.cli.get_cli", return_value={**SAMPLE_REGISTRY["clis"][0], "entry_point": "dreamina", "name": "jimeng", "display_name": "Jimeng / Dreamina CLI", "version": "latest", "_source": "public"})
+    @patch("cli_hub.cli.track_install")
+    def test_install_shows_launch_hint(self, mock_track, mock_get, mock_install, mock_detect, mock_visit, mock_first_run):
+        """Post-install output includes both entry point and cli-hub launch hint."""
+        result = self.runner.invoke(main, ["install", "jimeng"])
+        assert result.exit_code == 0
+        assert "dreamina" in result.output
+        assert "cli-hub launch jimeng" in result.output
+
+    @patch("cli_hub.cli.track_first_run")
+    @patch("cli_hub.cli.track_visit")
+    @patch("cli_hub.cli._detect_is_agent", return_value=False)
+    @patch("cli_hub.cli.shutil.which", return_value="/usr/bin/dreamina")
+    @patch("cli_hub.cli.os.execvp")
+    @patch("cli_hub.cli.get_cli", return_value=JIMENG_CLI)
+    def test_launch_execs_entry_point(self, mock_get, mock_execvp, mock_which, mock_detect, mock_visit, mock_first_run):
+        """launch execs the CLI entry point, passing through extra args."""
+        result = self.runner.invoke(main, ["launch", "jimeng", "login"])
+        mock_execvp.assert_called_once_with("dreamina", ["dreamina", "login"])
+
+    @patch("cli_hub.cli.track_first_run")
+    @patch("cli_hub.cli.track_visit")
+    @patch("cli_hub.cli._detect_is_agent", return_value=False)
+    @patch("cli_hub.cli.shutil.which", return_value=None)
+    @patch("cli_hub.cli.get_cli", return_value=JIMENG_CLI)
+    def test_launch_not_on_path_shows_install_hint(self, mock_get, mock_which, mock_detect, mock_visit, mock_first_run):
+        """launch fails gracefully when entry point not on PATH."""
+        result = self.runner.invoke(main, ["launch", "jimeng"])
+        assert result.exit_code == 1
+        assert "cli-hub install jimeng" in result.output
+
+    @patch("cli_hub.cli.track_first_run")
+    @patch("cli_hub.cli.track_visit")
+    @patch("cli_hub.cli._detect_is_agent", return_value=False)
+    @patch("cli_hub.cli.get_cli", return_value=None)
+    def test_launch_unknown_cli(self, mock_get, mock_detect, mock_visit, mock_first_run):
+        """launch with an unknown CLI name exits with error."""
+        result = self.runner.invoke(main, ["launch", "nonexistent"])
+        assert result.exit_code == 1
+        assert "not found" in result.output

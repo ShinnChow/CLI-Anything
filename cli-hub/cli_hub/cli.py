@@ -1,5 +1,8 @@
 """cli-hub — CLI entry point."""
 
+import os
+import shutil
+
 import click
 
 from cli_hub import __version__
@@ -43,6 +46,7 @@ def install(name):
         click.secho(f"✓ {msg}", fg="green")
         if cli:
             click.echo(f"  Run it with: {cli['entry_point']}")
+            click.echo(f"  Or launch:   cli-hub launch {cli['name']}")
             if cli.get("_source") == "public" and cli.get("npx_cmd"):
                 click.echo(f"  Or use npx:  {cli['npx_cmd']}")
     else:
@@ -199,6 +203,28 @@ def info(name):
     click.echo(f"  Status:      {status}")
     click.echo(f"\n  Install: cli-hub install {cli['name']}")
     click.echo()
+
+
+@main.command()
+@click.argument("name")
+@click.argument("args", nargs=-1)
+def launch(name, args):
+    """Launch an installed CLI, passing through any extra arguments."""
+    cli = get_cli(name)
+    if not cli:
+        click.secho(f"CLI '{name}' not found in registry.", fg="red", err=True)
+        raise SystemExit(1)
+
+    entry = cli["entry_point"]
+    if not shutil.which(entry):
+        click.secho(
+            f"'{entry}' not found on PATH. Install it first: cli-hub install {name}",
+            fg="red",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    os.execvp(entry, [entry] + list(args))
 
 
 if __name__ == "__main__":

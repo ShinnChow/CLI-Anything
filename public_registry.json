@@ -2,7 +2,7 @@
   "meta": {
     "repo": "https://github.com/HKUDS/CLI-Anything",
     "description": "Public CLI Registry — Third-party and official CLIs managed by CLI-Hub across npm, bundled, brew, and other install methods",
-    "updated": "2026-04-15"
+    "updated": "2026-04-16"
   },
   "clis": [
     {
@@ -15,10 +15,10 @@
       "homepage": "https://github.com/larksuite/cli",
       "source_url": "https://github.com/larksuite/cli",
       "package_manager": "npm",
-      "npm_package": "@anthropic-ai/feishu-cli",
-      "install_cmd": "npm install -g @anthropic-ai/feishu-cli",
-      "npx_cmd": "npx @anthropic-ai/feishu-cli",
-      "entry_point": "feishu",
+      "npm_package": "@larksuite/cli",
+      "install_cmd": "npm install -g @larksuite/cli",
+      "npx_cmd": "npx @larksuite/cli",
+      "entry_point": "lark-cli",
       "contributors": [
         {
           "name": "larksuite",
@@ -171,6 +171,48 @@
         {
           "name": "1Password",
           "url": "https://1password.com"
+        }
+      ]
+    },
+    {
+      "name": "generate-veo-video",
+      "display_name": "Generate Veo Video",
+      "version": "0.2.5",
+      "description": "CLI for generating videos with Google Veo 3.1 via Vertex AI/Gemini — text-to-video, image-to-video, reference images, frame morphing, and video extension",
+      "category": "ai",
+      "requires": "Python >= 3.10, uv, GOOGLE_CLOUD_PROJECT env var (GEMINI_API_KEY optional)",
+      "homepage": "https://github.com/charles-forsyth/generate-veo-video",
+      "source_url": "https://github.com/charles-forsyth/generate-veo-video",
+      "package_manager": "uv",
+      "install_cmd": "uv tool install git+https://github.com/charles-forsyth/generate-veo-video.git",
+      "uninstall_cmd": "uv tool uninstall generate-veo-video",
+      "update_cmd": "uv tool upgrade generate-veo-video",
+      "entry_point": "generate-veo",
+      "contributors": [
+        {
+          "name": "charles-forsyth",
+          "url": "https://github.com/charles-forsyth"
+        }
+      ]
+    },
+    {
+      "name": "jimeng",
+      "display_name": "Jimeng / Dreamina CLI",
+      "version": "latest",
+      "description": "Official ByteDance AI image and video generation CLI — text-to-image, text-to-video, image-to-video, digital human, and intelligent canvas; domestic brand is Jimeng (即梦), international brand is Dreamina",
+      "category": "ai",
+      "requires": "Jimeng / Dreamina account and API key",
+      "homepage": "https://jimeng.jianying.com/",
+      "docs_url": "https://bytedance.larkoffice.com/wiki/FVTwwm0bGiishxkKOoScdHR2nsg",
+      "source_url": null,
+      "package_manager": "script",
+      "install_strategy": "command",
+      "install_cmd": "curl -s https://jimeng.jianying.com/cli | bash",
+      "entry_point": "dreamina",
+      "contributors": [
+        {
+          "name": "ByteDance",
+          "url": "https://www.bytedance.com"
         }
       ]
     },
