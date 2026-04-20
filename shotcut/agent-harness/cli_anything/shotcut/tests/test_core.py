@@ -109,6 +109,30 @@ class TestMltXml:
         assert parsed.tag == "mlt"
         assert parsed.find("profile").get("width") == "1920"
 
+    def test_write_mlt_normalizes_late_media_nodes(self, tmp_path):
+        root = create_blank_project(PROFILE_HD1080)
+        late_chain = ET.Element("chain")
+        late_chain.set("id", "late_chain")
+        late_chain.set("in", "00:00:00.000")
+        late_chain.set("out", "00:00:01.000")
+        set_property(late_chain, "resource", "/tmp/fake.mp4")
+        set_property(late_chain, "mlt_service", "avformat-novalidate")
+        root.append(late_chain)
+
+        tmpfile = str(tmp_path / "ordered.mlt")
+        write_mlt(root, tmpfile)
+        parsed = parse_mlt(tmpfile)
+        children = list(parsed)
+        first_playlist_or_tractor = min(
+            idx for idx, child in enumerate(children) if child.tag in ("playlist", "tractor")
+        )
+        late_idx = next(
+            idx
+            for idx, child in enumerate(children)
+            if child.tag == "chain" and child.get("id") == "late_chain"
+        )
+        assert late_idx < first_playlist_or_tractor
+
     def test_properties(self):
         import xml.etree.ElementTree as ET
         elem = ET.Element("producer")
@@ -449,6 +473,15 @@ class TestTimeline:
                  if c.get("clip_index") is not None]
         assert len(clips) == 0
 
+    def test_remove_clip_without_ripple_preserves_inclusive_duration(self, session_with_track, dummy_file):
+        clip_id = media_mod.import_media(session_with_track, dummy_file)["clip_id"]
+        tl_mod.add_clip(session_with_track, clip_id, 1,
+                        in_point="00:00:00.000", out_point="00:00:01.000")
+        tl_mod.remove_clip(session_with_track, 1, 0, ripple=False)
+        blank = next(item for item in tl_mod.list_clips(session_with_track, 1)
+                     if item.get("type") == "blank")
+        assert parse_time_input(blank["length"]) == timecode_to_frames("00:00:01.000") + 1
+
     def test_trim_clip(self, session_with_clip):
         result = tl_mod.trim_clip(session_with_clip, 1, 0,
                                   in_point="00:00:02.000", out_point="00:00:04.000")
@@ -457,7 +490,8 @@ class TestTimeline:
 
     def test_split_clip(self, session_with_clip):
         result = tl_mod.split_clip(session_with_clip, 1, 0, "00:00:03.000")
-        assert result["first_clip"]["out"] == "00:00:03.000"
+        expected_first_out = frames_to_timecode(timecode_to_frames("00:00:03.000") - 1)
+        assert result["first_clip"]["out"] == expected_first_out
         assert result["second_clip"]["in"] == "00:00:03.000"
         clips = [c for c in tl_mod.list_clips(session_with_clip, 1)
                  if c.get("clip_index") is not None]
@@ -520,6 +554,18 @@ class TestTimeline:
                 at_time="00:00:03.000",
             )
 
+    def test_add_clip_at_time_uses_inclusive_duration(self, session_with_track, dummy_file):
+        clip_id = media_mod.import_media(session_with_track, dummy_file)["clip_id"]
+        tl_mod.add_clip(session_with_track, clip_id, 1,
+                        in_point="00:00:00.000", out_point="00:00:01.000")
+        next_start = frames_to_timecode(timecode_to_frames("00:00:01.000") + 1)
+        tl_mod.add_clip(session_with_track, clip_id, 1,
+                        in_point="00:00:00.000", out_point="00:00:01.000",
+                        at_time=next_start)
+        items = tl_mod.list_clips(session_with_track, 1)
+        assert len([item for item in items if item.get("type") == "blank"]) == 0
+        assert len([item for item in items if item.get("clip_index") is not None]) == 2
+
     def test_add_clip_at_time_inserts_gap(self, session_with_track, dummy_file):
         clip_id = media_mod.import_media(session_with_track, dummy_file)["clip_id"]
         result = tl_mod.add_clip(
@@ -547,14 +593,16 @@ class TestTimeline:
 
     def test_add_clip_at_boundary_between_clips(self, session_with_track, dummy_file):
         clip_id = media_mod.import_media(session_with_track, dummy_file)["clip_id"]
+        next_start = frames_to_timecode(timecode_to_frames("00:00:01.000") + 1)
+        third_start = frames_to_timecode((timecode_to_frames("00:00:01.000") + 1) * 2)
         tl_mod.add_clip(session_with_track, clip_id, 1,
                         in_point="00:00:00.000", out_point="00:00:01.000")
         tl_mod.add_clip(session_with_track, clip_id, 1,
                         in_point="00:00:00.000", out_point="00:00:01.000",
-                        at_time="00:00:01.000")
+                        at_time=next_start)
         tl_mod.add_clip(session_with_track, clip_id, 1,
                         in_point="00:00:00.000", out_point="00:00:01.000",
-                        at_time="00:00:01.000")
+                        at_time=third_start)
         clips = tl_mod.list_clips(session_with_track, 1)
         real = [c for c in clips if c.get("clip_index") is not None]
         assert len(real) == 3
@@ -565,14 +613,16 @@ class TestTimeline:
 
     def test_add_clip_at_after_two_clips(self, session_with_track, dummy_file):
         clip_id = media_mod.import_media(session_with_track, dummy_file)["clip_id"]
+        next_start = frames_to_timecode(timecode_to_frames("00:00:01.000") + 1)
+        third_start = frames_to_timecode((timecode_to_frames("00:00:01.000") + 1) * 2)
         tl_mod.add_clip(session_with_track, clip_id, 1,
                         in_point="00:00:00.000", out_point="00:00:01.000")
         tl_mod.add_clip(session_with_track, clip_id, 1,
                         in_point="00:00:00.000", out_point="00:00:01.000",
-                        at_time="00:00:01.000")
+                        at_time=next_start)
         tl_mod.add_clip(session_with_track, clip_id, 1,
                         in_point="00:00:00.000", out_point="00:00:01.000",
-                        at_time="00:00:02.000")
+                        at_time=third_start)
         clips = tl_mod.list_clips(session_with_track, 1)
         real = [c for c in clips if c.get("clip_index") is not None]
         assert len(real) == 3
@@ -710,7 +760,8 @@ class TestTimeline:
                                  clip_a_index=0, duration_frames=14)
         orig_out = parse_time_input("00:00:10.000", 30000, 1001)
         result = tl_mod.split_clip(session_with_three_clips, 1, 0, "00:00:05.000")
-        assert result["first_clip"]["out"] == "00:00:05.000"
+        expected_first_out = frames_to_timecode(timecode_to_frames("00:00:05.000") - 1)
+        assert result["first_clip"]["out"] == expected_first_out
         assert abs(parse_time_input(result["second_clip"]["out"], 30000, 1001) - orig_out) <= 1
 
 

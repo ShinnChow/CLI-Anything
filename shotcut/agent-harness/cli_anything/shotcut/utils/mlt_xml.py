@@ -58,8 +58,13 @@ def parse_mlt(filepath: str) -> ET.Element:
 
 
 def write_mlt(root: ET.Element, filepath: str) -> None:
-    """Write an MLT XML tree to a file."""
+    """Write an MLT XML tree to a file.
+
+    Normalize top-level media ordering first so playlists never
+    forward-reference chain/producer nodes declared later in the XML.
+    """
     pretty = copy.deepcopy(root)
+    normalize_top_level_order(pretty)
     ET.indent(pretty, space="  ")
     tree = ET.ElementTree(pretty)
     tree.write(filepath, xml_declaration=True, encoding="utf-8")
@@ -257,6 +262,38 @@ def create_blank_project(profile: dict) -> ET.Element:
     return root
 
 
+def _first_playlist_or_tractor_index(root: ET.Element) -> int:
+    """Return the first top-level playlist/tractor index, or len(root)."""
+    for idx, child in enumerate(list(root)):
+        if child.tag in ("playlist", "tractor"):
+            return idx
+    return len(root)
+
+
+def insert_before_playlists_and_tractors(root: ET.Element, element: ET.Element) -> None:
+    """Insert a top-level declaration before any playlists or tractors."""
+    root.insert(_first_playlist_or_tractor_index(root), element)
+    _set_parent(element, root)
+
+
+def normalize_top_level_order(root: ET.Element) -> None:
+    """Move late top-level chains/producers ahead of playlists and tractors."""
+    late_media: list[ET.Element] = []
+    seen_playlist_or_tractor = False
+    for child in list(root):
+        if child.tag in ("playlist", "tractor"):
+            seen_playlist_or_tractor = True
+        elif child.tag in ("producer", "chain") and seen_playlist_or_tractor:
+            late_media.append(child)
+
+    for element in late_media:
+        root.remove(element)
+
+    insert_idx = _first_playlist_or_tractor_index(root)
+    for offset, element in enumerate(late_media):
+        root.insert(insert_idx + offset, element)
+
+
 def _add_system_transitions(tractor: ET.Element, track_index: int,
                             root: ET.Element = None,
                             track_type: str = "video") -> None:
@@ -403,9 +440,9 @@ def create_chain(root: ET.Element, resource: str,
 
     if insert_idx is not None:
         root.insert(insert_idx, chain)
+        _set_parent(chain, root)
     else:
-        root.append(chain)
-    _set_parent(chain, root)
+        insert_before_playlists_and_tractors(root, chain)
 
     return chain
 
@@ -421,9 +458,7 @@ def create_producer(root: ET.Element, resource: str,
         "producer", prod_id, resource, in_point, out_point, caption, service
     )
 
-    insert_idx = find_insert_index_for_timeline_chain(root)
-    root.insert(insert_idx, producer)
-    _set_parent(producer, root)
+    insert_before_playlists_and_tractors(root, producer)
 
     return producer
 

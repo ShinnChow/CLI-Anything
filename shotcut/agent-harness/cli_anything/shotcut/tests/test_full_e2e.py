@@ -8,10 +8,12 @@ CLI subprocess, and melt rendering.
 import os
 import sys
 import json
+import shutil
 import tempfile
 import subprocess
 
 import pytest
+from PIL import Image, ImageStat
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -749,6 +751,42 @@ class TestMeltRenderE2E:
             assert result.returncode == 0, f"melt failed: {result.stderr[-500:]}"
             assert os.path.exists(output_path)
             assert os.path.getsize(output_path) > 0
+
+    def test_render_imported_media_is_not_black(self, session, video):
+        if shutil.which("ffmpeg") is None:
+            pytest.skip("ffmpeg is required for frame extraction")
+
+        tl_mod.add_track(session, "video", "V1")
+        clip_id = media_mod.import_media(session, video)["clip_id"]
+        tl_mod.add_clip(session, clip_id, 1, "00:00:00.000", "00:00:01.000")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = os.path.join(tmp_dir, "render.mp4")
+            frame_path = os.path.join(tmp_dir, "frame.png")
+
+            result = export_mod.render(session, output_path, "default", overwrite=True)
+            assert result["method"] == "melt"
+            assert os.path.exists(output_path)
+
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    "00:00:00.500",
+                    "-i",
+                    output_path,
+                    "-frames:v",
+                    "1",
+                    frame_path,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            mean = ImageStat.Stat(Image.open(frame_path).convert("RGB")).mean
+            assert max(mean) > 5, f"Rendered frame appears black: {mean}"
 
 
 # ============================================================================

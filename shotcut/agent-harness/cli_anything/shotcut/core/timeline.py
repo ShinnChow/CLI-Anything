@@ -152,7 +152,11 @@ def _entry_duration_frames(session: Session, entry: dict) -> int:
     out_point = entry.get("out")
     if not out_point:
         raise RuntimeError("Absolute timeline placement requires clips with finite out points")
-    return parse_time_input(out_point, fps_num, fps_den) - parse_time_input(in_point, fps_num, fps_den)
+    return (
+        parse_time_input(out_point, fps_num, fps_den)
+        - parse_time_input(in_point, fps_num, fps_den)
+        + 1
+    )
 
 
 def _absolute_insertion_point(
@@ -187,7 +191,11 @@ def _absolute_insertion_point(
             if out_tc is None:
                 prod = mlt_xml.find_element_by_id(session.root, child.get("producer", ""))
                 out_tc = prod.get("out", "00:00:00.000") if prod is not None else "00:00:00.000"
-            duration = parse_time_input(out_tc, fps_num, fps_den) - parse_time_input(in_tc, fps_num, fps_den)
+            duration = (
+                parse_time_input(out_tc, fps_num, fps_den)
+                - parse_time_input(in_tc, fps_num, fps_den)
+                + 1
+            )
             start = timeline_cursor
             end = start + duration
             if target == start:
@@ -249,12 +257,13 @@ def _update_tractor_out(session: Session) -> None:
                         out_tc = "00:00:00.000"
                 track_frames += parse_time_input(out_tc, fps_num, fps_den)
                 track_frames -= parse_time_input(in_tc, fps_num, fps_den)
+                track_frames += 1
             elif child.tag == "blank":
                 track_frames += parse_time_input(child.get("length", "00:00:00.000"), fps_num, fps_den)
 
         max_frames = max(max_frames, track_frames)
 
-    out_tc = frames_to_timecode(max_frames, fps_num, fps_den) if max_frames > 0 else "00:00:00.000"
+    out_tc = frames_to_timecode(max_frames - 1, fps_num, fps_den) if max_frames > 0 else "00:00:00.000"
     mlt_xml.set_tractor_out(session.root, out_tc)
 
     # Sync background producer and playlist entry to match — melt ignores
@@ -263,7 +272,7 @@ def _update_tractor_out(session: Session) -> None:
     if bg_producer is not None:
         bg_producer.set("out", out_tc)
         mlt_xml.set_property(bg_producer, "length",
-                             frames_to_timecode(max_frames + 1, fps_num, fps_den)
+                             frames_to_timecode(max_frames, fps_num, fps_den)
                              if max_frames > 0 else "00:00:00.040")
     bg_playlist = mlt_xml.find_element_by_id(session.root, "background")
     if bg_playlist is not None:
@@ -579,7 +588,7 @@ def remove_clip(session: Session, track_index: int, clip_index: int,
         playlist.remove(target_child)
         in_frames = parse_time_input(in_tc, fps_num, fps_den)
         out_frames = parse_time_input(out_tc, fps_num, fps_den)
-        duration_frames = out_frames - in_frames
+        duration_frames = out_frames - in_frames + 1
         if duration_frames > 0:
             duration_tc = frames_to_timecode(duration_frames, fps_num, fps_den)
             blank = ET.Element("blank")
@@ -748,8 +757,19 @@ def split_clip(session: Session, track_index: int, clip_index: int,
                 if old_out is None:
                     raise RuntimeError("Cannot split clip without out point")
 
-                # First part: original in → split point (AFTER transition restore)
-                child.set("out", at)
+                old_in_frames = parse_time_input(old_in, fps_num, fps_den)
+                old_out_frames = parse_time_input(old_out, fps_num, fps_den)
+                split_frames = parse_time_input(at, fps_num, fps_den)
+                if split_frames <= old_in_frames:
+                    raise ValueError("Split point must be after the clip in point")
+                if split_frames > old_out_frames:
+                    raise ValueError("Split point must not exceed the clip out point")
+
+                first_out = frames_to_timecode(split_frames - 1, fps_num, fps_den)
+
+                # MLT out-points are inclusive, so the first half must end on
+                # the frame immediately before the split point.
+                child.set("out", first_out)
 
                 # Second part: split point → original out
                 # Create a copy of the timeline chain
@@ -782,7 +802,7 @@ def split_clip(session: Session, track_index: int, clip_index: int,
                     "track_index": track_index,
                     "clip_index": clip_index,
                     "at": at,
-                    "first_clip": {"chain_id": producer_id, "in": old_in, "out": at},
+                    "first_clip": {"chain_id": producer_id, "in": old_in, "out": first_out},
                     "second_clip": {"chain_id": new_chain_id, "in": at, "out": old_out},
                 }
             entry_count += 1
