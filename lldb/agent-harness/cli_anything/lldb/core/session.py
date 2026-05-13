@@ -51,6 +51,20 @@ class LLDBSession:
             "triple": self.target.GetTriple(),
         }
 
+    def target_create_empty(self, arch: Optional[str] = None) -> Dict[str, Any]:
+        """Create an empty target for attach flows without a known executable."""
+        if arch:
+            self.target = self.debugger.CreateTargetWithFileAndArch("", arch)
+        else:
+            self.target = self.debugger.CreateTarget("")
+        if not self.target or not self.target.IsValid():
+            raise RuntimeError("Failed to create empty attach target")
+        return {
+            "executable": None,
+            "arch": arch,
+            "triple": self.target.GetTriple(),
+        }
+
     def target_info(self) -> Dict[str, Any]:
         self._require_target()
         exe = self.target.GetExecutable()

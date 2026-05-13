@@ -504,6 +504,77 @@ class TestDAPProtocol:
         ]
         assert all(item["type"] in {"response", "event"} for item in transcript)
 
+    def test_attach_accepts_process_id_without_program(self):
+        from cli_anything.lldb.dap import LLDBDebugAdapter, encode_message, read_message
+
+        fake_session = MagicMock()
+        fake_session.target_create_empty.return_value = {"executable": None}
+        fake_session.attach_pid.return_value = {}
+        fake_session.process_info.return_value = {
+            "state": "stopped",
+            "selected_thread_id": 77,
+            "stop": None,
+            "exit_status": 0,
+        }
+        messages = [
+            {"seq": 1, "type": "request", "command": "attach", "arguments": {"processId": 4242}},
+            {"seq": 2, "type": "request", "command": "configurationDone", "arguments": {}},
+        ]
+        out = io.BytesIO()
+        adapter = LLDBDebugAdapter(session_factory=lambda: fake_session)
+        adapter.run(io.BytesIO(b"".join(encode_message(message) for message in messages)), out)
+        out.seek(0)
+
+        attach_response = read_message(out)
+        configuration_response = read_message(out)
+        stopped_event = read_message(out)
+
+        assert attach_response["success"] is True
+        assert configuration_response["success"] is True
+        assert stopped_event["event"] == "stopped"
+        assert stopped_event["body"]["reason"] == "pause"
+        fake_session.target_create.assert_not_called()
+        fake_session.target_create_empty.assert_called_once_with(arch=None)
+        fake_session.attach_pid.assert_called_once_with(4242)
+
+    def test_attach_accepts_process_name_without_program(self):
+        from cli_anything.lldb.dap import LLDBDebugAdapter, encode_message, read_message
+
+        fake_session = MagicMock()
+        fake_session.target_create_empty.return_value = {"executable": None}
+        fake_session.attach_name.return_value = {}
+        fake_session.process_info.return_value = {
+            "state": "stopped",
+            "selected_thread_id": 78,
+            "stop": None,
+            "exit_status": 0,
+        }
+        messages = [
+            {
+                "seq": 1,
+                "type": "request",
+                "command": "attach",
+                "arguments": {"processName": "sample-app", "waitFor": True},
+            },
+            {"seq": 2, "type": "request", "command": "configurationDone", "arguments": {}},
+        ]
+        out = io.BytesIO()
+        adapter = LLDBDebugAdapter(session_factory=lambda: fake_session)
+        adapter.run(io.BytesIO(b"".join(encode_message(message) for message in messages)), out)
+        out.seek(0)
+
+        attach_response = read_message(out)
+        configuration_response = read_message(out)
+        stopped_event = read_message(out)
+
+        assert attach_response["success"] is True
+        assert configuration_response["success"] is True
+        assert stopped_event["event"] == "stopped"
+        assert stopped_event["body"]["reason"] == "pause"
+        fake_session.target_create.assert_not_called()
+        fake_session.target_create_empty.assert_called_once_with(arch=None)
+        fake_session.attach_name.assert_called_once_with("sample-app", wait_for=True)
+
     def test_modules_response_shape(self):
         from cli_anything.lldb.dap import LLDBDebugAdapter, read_message
 
@@ -793,6 +864,25 @@ class TestSessionLifecycle:
         assert status["has_target"] is True
         assert status["has_process"] is True
         assert status["process_origin"] == "attached"
+
+    def test_target_create_empty_uses_attach_target(self):
+        from cli_anything.lldb.core.session import LLDBSession
+
+        session = self._make_session()
+        target = MagicMock()
+        target.IsValid.return_value = True
+        target.GetTriple.return_value = "x86_64-unknown-linux-gnu"
+        session.debugger.CreateTarget.return_value = target
+
+        payload = LLDBSession.target_create_empty(session)
+
+        session.debugger.CreateTarget.assert_called_once_with("")
+        assert session.target is target
+        assert payload == {
+            "executable": None,
+            "arch": None,
+            "triple": "x86_64-unknown-linux-gnu",
+        }
 
     def test_process_info_public_wrapper(self):
         from cli_anything.lldb.core.session import LLDBSession

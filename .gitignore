@@ -15,6 +15,7 @@
 !/README.md
 !/CONTRIBUTING.md
 !/SECURITY.md
+!/FIX_NOTES.md
 !/assets/
 !/.pi-extension/
 /.pi-extension/cli-anything/node_modules

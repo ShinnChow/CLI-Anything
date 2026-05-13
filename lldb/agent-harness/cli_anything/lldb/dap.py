@@ -67,6 +67,14 @@ def _raise_protocol_error(message: str):
     raise DAPProtocolError(message)
 
 
+def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = mapping.get(key)
+        if value is not None and not (isinstance(value, str) and value == ""):
+            return value
+    return None
+
+
 @dataclass(frozen=True)
 class StopRule:
     """Structured rule used to classify or auto-continue debugger stops."""
@@ -293,14 +301,15 @@ class LLDBDebugAdapter:
         return {}, None
 
     def _handle_attach(self, args: dict[str, Any]):
-        program = args.get("program") or args.get("executable")
-        if not program:
-            raise RuntimeError("attach requires 'program' or 'executable' so LLDB can create a target")
-        self._ensure_session().target_create(str(program), arch=args.get("arch"))
-        pid = args.get("pid", args.get("processId"))
-        name = args.get("name", args.get("processName"))
+        program = _first_present(args, "program", "executable")
+        pid = _first_present(args, "pid", "processId")
+        name = _first_present(args, "name", "processName")
         if pid is None and not name:
             raise RuntimeError("attach requires pid/processId or name/processName")
+        if program:
+            self._ensure_session().target_create(str(program), arch=args.get("arch"))
+        else:
+            self._ensure_session().target_create_empty(arch=args.get("arch"))
         self._pending_attach = {
             "pid": int(pid) if pid is not None else None,
             "name": str(name) if name else None,
